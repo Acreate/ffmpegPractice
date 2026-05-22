@@ -1,3 +1,6 @@
 [submodule "srcs/cmake/cmakeFuncs"]
 	path = srcs/cmake/cmakeFuncs
 	url = https://gitee.com/ChenYLhuman/cmakeFuncs.git
+[submodule "srcs/lib/ffmpeg_8.1.1_full_build_shared"]
+	path = srcs/lib/ffmpeg_8.1.1_full_build_shared
+	url = https://gitee.com/ChenYLhuman/ffmpeg_8.1.1_full_build_shared.git
