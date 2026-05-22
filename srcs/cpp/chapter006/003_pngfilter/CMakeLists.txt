@@ -134,5 +134,3 @@ target_include_directories( ${prject_name} PRIVATE "${find_path}/include" )
 file( GLOB lib_file_s "${find_path}/lib/*.lib" )
 file( GLOB lib_file_s "${find_path}/lib/*.a" )
 target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
-
-un_show_include_info()

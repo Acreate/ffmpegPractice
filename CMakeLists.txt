@@ -22,22 +22,22 @@ set( CMAKE_CXX_EXTENSIONS ON )
 include( GenerateExportHeader )
 include( GNUInstallDirs )
 get_cmake_separator( _cmake_sep )
-init_std_builder_path()
+init_std_builder_path( )
 
 find_package( Qt6 QUIET COMPONENTS Widgets Core LinguistTools Network )
 if( NOT Qt6_FOUND OR NOT EXISTS "${Qt6_DIR}" )
-    # # 使用 qt6
-    set( Current_Qt_Version 6.11.1 )
-    set( Qt6_DIR "C:/Qt/${Current_Qt_Version}/msvc2022_64/lib/cmake/QT6/" )
-    init_qt_dir_event( "${Qt6_DIR}" )
-    find_package( Qt6 REQUIRED COMPONENTS Widgets Core LinguistTools  )
-else()
-    init_qt_dir_event( "${Qt6_DIR}" )
-endif()
+	# # 使用 qt6
+	set( Current_Qt_Version 6.11.1 )
+	set( Qt6_DIR "C:/Qt/${Current_Qt_Version}/msvc2022_64/lib/cmake/QT6/" )
+	init_qt_dir_event( "${Qt6_DIR}" )
+	find_package( Qt6 REQUIRED COMPONENTS Widgets Core LinguistTools )
+else( )
+	init_qt_dir_event( "${Qt6_DIR}" )
+endif( )
 
-PRINTF_QT_CMAKE_OUT()
+printf_qt_cmake_out( )
 
-qt_standard_project_setup()
+qt_standard_project_setup( )
 
 # # supper_cmake_builder_language( _cmake_supper_language_list ) # # 语言支持列表
 append_source_file_extensions( LANGUAGES C CXX SUFFIXS h hpp hc H HPP HC ui UI ) # # 追加后缀名
@@ -52,4 +52,4 @@ list( APPEND out_path_list ${lib_list} ${bin_list} )
 filter_path_repetition( list_result out_path_list )
 append_sub_directory_cmake_project_path_list( list_result )
 
-configure_all_target()
+configure_all_target( )

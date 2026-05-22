@@ -205,20 +205,20 @@ int init_filter( const char *filters_desc ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer source\n" );
 		return ret;
 	}
-	// atempo滤镜要求提前设置sample_fmts，否则av_buffersink_get_format得到的格式不对，会报错Specified sample format flt is invalid or not supported
-	enum AVSampleFormat sample_fmts[ ] = { AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_NONE };
 	// 将二进制选项设置为整数列表，此处给输出滤镜的实例设置采样格式
-	ret = av_opt_set_int_list( abuffersink_ctx, "sample_fmts", sample_fmts,								AV_SAMPLE_FMT_NONE, AV_OPT_SEARCH_CHILDREN );
-	// 创建输出滤镜的实例，并将其添加到现有的滤镜图
-	ret = avfilter_graph_create_filter( &abuffersink_ctx, buffersink, "out",
-										NULL, NULL, afilter_graph );
-	if( ret < 0 ) {
-		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer sink\n" );
-		return ret;
-	}
-	
+	AVDictionary *avOption = nullptr;
+	const char *fmt_name = av_get_sample_fmt_name( AV_SAMPLE_FMT_FLTP );
+	ret = av_dict_set( &avOption, "sample_fmts", fmt_name, 0 );
 	if( ret < 0 ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot set output sample format\n" );
+		return ret;
+	}
+	// 创建输出滤镜的实例，并将其添加到现有的滤镜图
+	ret = avfilter_graph_create_filter( &abuffersink_ctx, buffersink, "out",
+										NULL, &avOption, afilter_graph );
+	av_dict_free( &avOption );
+	if( ret < 0 ) {
+		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer sink\n" );
 		return ret;
 	}
 

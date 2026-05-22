@@ -10,6 +10,8 @@ EXTERN_C {
 	#include <libavfilter/avfilter.h>
 	#include <libavutil/avutil.h>
 	#include <libavutil/opt.h>
+	#include <libavutil/pixfmt.h>
+	#include <libavutil/pixdesc.h>
 }
 #include <cmake_include_to_c_cpp_header_env.h>
 
@@ -45,17 +47,18 @@ int init_filter( AVStream *video_stream, AVCodecContext *video_decode_ctx, const
 		return ret;
 	}
 	// 在 8.1 版为生成过滤视图前配置
-	enum AVPixelFormat pix_fmts[ ] = { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE };
 	// 将二进制选项设置为整数列表，此处给输出滤镜的实例设置像素格式
-	ret = av_opt_set_int_list( buffersink_ctx, "pix_fmts", pix_fmts,
-								AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN );
+	auto avPixFmtName = av_get_pix_fmt_name( AV_PIX_FMT_YUV420P );
+	AVDictionary *options = nullptr;
+	ret = av_dict_set( &options, "pix_fmts", avPixFmtName, 0 );
 	if( ret < 0 ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot set output pixel format\n" );
 		return ret;
 	}
 	// 创建输出滤镜的实例，并将其添加到现有的滤镜图
 	ret = avfilter_graph_create_filter( &buffersink_ctx, buffersink, "out",
-										NULL, NULL, filter_graph );
+										NULL, &options, filter_graph );
+	av_dict_free( &options );
 	if( ret < 0 ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer sink\n" );
 		return ret;
