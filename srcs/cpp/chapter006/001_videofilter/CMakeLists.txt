@@ -52,7 +52,7 @@ else()
     endif()
 endif()
 
-target_link_libraries( ${prject_name} PRIVATE Qt6::Widgets Qt6::Core )
+target_link_libraries( ${prject_name} PRIVATE Qt6::Widgets Qt6::Core Qt6::Network )
 
 if( ${QT_VERSION} VERSION_LESS 6.1.0 )
     set( BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.${prject_name} )
@@ -83,7 +83,6 @@ endif()
 
 if( MSVC )
     target_compile_options( "${prject_name}" PRIVATE "/utf-8" )
-    un_show_include_info()
 endif()
 
 target_include_directories( "${prject_name}" PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/srcs" )
@@ -125,11 +124,12 @@ qt_add_translations(
 copy_dir_path_cmake_file_command( "${copy_file_src_dir}" "${app_resouce_path}" )
 
 set_property( TARGET "${prject_name}" PROPERTY appResoucePath "${app_resouce_path}" )
-set( find_path "${CMAKE_HOME_DIRECTORY}/ffmpeg/shared/ffmpeg-8.1.1-full_build-shared" )
+set( find_path "${CMAKE_HOME_DIRECTORY}/srcs/lib/ffmpeg_8.1.1_full_build_shared" )
 file( GLOB dll_file_s "${find_path}/bin/*.dll" )
 copy_mul_dir_path_cmake_file_command( "${app_run_bin}" dll_file_s )
 
 target_include_directories( ${prject_name} PRIVATE "${find_path}/include" )
 
 file( GLOB lib_file_s "${find_path}/lib/*.lib" )
+file( GLOB lib_file_s "${find_path}/lib/*.a" )
 target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
