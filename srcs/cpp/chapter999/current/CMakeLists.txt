@@ -91,6 +91,7 @@ target_include_directories( "${prject_name}" PRIVATE "${CMAKE_CURRENT_SOURCE_DIR
 # # 需要生成的 *.ts 文件保存到 translation_file_list 变量当中
 
 
+
 set( translation_file_list_auto
 
 	# # 美语
@@ -102,6 +103,7 @@ set( translation_file_list_auto
 )
 
 # # 需要生成的 *.ts 文件保存到 translation_file_list 变量当中
+
 
 
 set( translation_app_default_file
@@ -133,7 +135,7 @@ set_property( TARGET "${prject_name}" PROPERTY appResoucePath "${app_resouce_pat
 
 set( find_path "${CMAKE_HOME_DIRECTORY}/srcs/lib/ffmpeg_8.1.1_full_build_shared" )
 file( GLOB dll_file_s "${find_path}/bin/*.dll" )
-copy_mul_dir_path_cmake_file_command( "${app_run_bin}" dll_file_s )
+copy_replace_mul_dir_path_cmake_file_command( FALSE "${app_run_bin}" dll_file_s )
 target_include_directories( ${prject_name} PRIVATE "${find_path}/include" )
 file( GLOB lib_file_s "${find_path}/lib/*.lib" )
 target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
@@ -142,13 +144,13 @@ target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
 
 set( find_path "${CMAKE_HOME_DIRECTORY}/srcs/lib/iconv_1.19" )
 file( GLOB dll_file_s "${find_path}/x64/Debug/*.dll" )
-copy_mul_dir_path_cmake_file_command( "${app_run_bin}" dll_file_s )
+copy_replace_mul_dir_path_cmake_file_command( FALSE "${app_run_bin}" dll_file_s )
 target_include_directories( ${prject_name} PRIVATE "${find_path}/include" )
 file( GLOB lib_file_s "${find_path}/x64/Debug/*.lib" )
 target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
 file( GLOB lib_file_s "${find_path}/x64/Debug/*.a" )
 target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
 
-copy_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/simsun.ttc" "${app_run_bin}" )
-copy_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/fuzhou.mp4" "${app_run_bin}" )
-copy_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/plum.mp3" "${app_run_bin}" )
+copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/simsun.ttc" "${app_run_bin}" FALSE )
+copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/fuzhou.mp4" "${app_run_bin}" FALSE )
+copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/plum.mp3" "${app_run_bin}" FALSE )
