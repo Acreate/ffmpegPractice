@@ -158,4 +158,4 @@ copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmp
 copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/sea.mp4" "${app_run_bin}" FALSE )
 copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/plum.mp3" "${app_run_bin}" FALSE )
 copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/2018.mp3" "${app_run_bin}" FALSE )
-copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/ship.mp3" "${app_run_bin}" FALSE )
+copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/plum.mp3" "${app_run_bin}" FALSE )
