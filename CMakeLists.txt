@@ -25,6 +25,7 @@ get_cmake_separator( _cmake_sep )
 init_std_builder_path( )
 
 find_package( Qt6 QUIET COMPONENTS Widgets Core LinguistTools Network )
+
 if( NOT Qt6_FOUND OR NOT EXISTS "${Qt6_DIR}" )
 	# # 使用 qt6
 	set( Current_Qt_Version 6.11.1 )
