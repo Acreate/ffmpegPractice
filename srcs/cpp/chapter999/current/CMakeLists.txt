@@ -12,7 +12,7 @@ message( "============ ${CURRENT_FOLDER}" )
 set( CMAKE_AUTOMOC ON )
 set( CMAKE_AUTOUIC ON )
 set( CMAKE_AUTORCC ON )
-
+set( CMAKE_VERBOSE_MAKEFILE FALSE )
 # 寻找多媒体组件
 find_package( Qt6 REQUIRED COMPONENTS Multimedia OpenGLWidgets )
 
@@ -86,7 +86,7 @@ endif( )
 
 if( MSVC )
 	target_compile_options( "${prject_name}" PRIVATE "/utf-8" )
-	un_show_include_info( )
+	un_show_include_info( ${prject_name} )
 endif( )
 
 target_include_directories( "${prject_name}" PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/srcs" )
@@ -172,5 +172,3 @@ copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmp
 copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/plum.mp3" "${app_run_bin}" FALSE )
 copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/2018.mp3" "${app_run_bin}" FALSE )
 copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/ship.mp3" "${app_run_bin}" FALSE )
-
-un_show_include_info( )

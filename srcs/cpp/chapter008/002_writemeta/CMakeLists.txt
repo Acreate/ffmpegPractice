@@ -83,7 +83,7 @@ endif( )
 
 if( MSVC )
 	target_compile_options( "${prject_name}" PRIVATE "/utf-8" )
-	un_show_include_info( )
+	un_show_include_info( ${prject_name} )
 endif( )
 
 target_include_directories( "${prject_name}" PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/srcs" )
@@ -152,4 +152,4 @@ target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
 copy_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/simsun.ttc" "${app_run_bin}" )
 copy_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/fuzhou.mp4" "${app_run_bin}" )
 
-un_show_include_info( )
+un_show_include_info( ${prject_name} )
