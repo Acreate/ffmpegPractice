@@ -13,9 +13,6 @@ set( CMAKE_AUTOMOC ON )
 set( CMAKE_AUTOUIC ON )
 set( CMAKE_AUTORCC ON )
 
-# 寻找多媒体组件
-find_package( Qt6 REQUIRED COMPONENTS Multimedia OpenGLWidgets )
-
 get_path_sources( project_src_file PATHS "${CMAKE_CURRENT_LIST_DIR}/srcs" LANGUAGES CXX C )
 
 list( APPEND image_sources
@@ -55,7 +52,7 @@ else( )
 	endif( )
 endif( )
 
-target_link_libraries( ${prject_name} PRIVATE Qt6::Widgets Qt6::Core Qt6::Multimedia Qt6::OpenGLWidgets )
+target_link_libraries( ${prject_name} PRIVATE Qt6::Widgets Qt6::Core )
 
 if( ${QT_VERSION} VERSION_LESS 6.1.0 )
 	set( BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.${prject_name} )
@@ -172,5 +169,3 @@ copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmp
 copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/plum.mp3" "${app_run_bin}" FALSE )
 copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/2018.mp3" "${app_run_bin}" FALSE )
 copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/cpp/FFmpeg resources/ship.mp3" "${app_run_bin}" FALSE )
-
-un_show_include_info( )
