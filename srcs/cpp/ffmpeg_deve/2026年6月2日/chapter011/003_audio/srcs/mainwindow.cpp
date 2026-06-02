@@ -10,6 +10,9 @@
 #include <QtMultimedia/QAudioSink>
 #include <QMediaDevices>
 
+#include "sdlplayer.h"
+#include "sinkplayer.h"
+
 MainWindow::MainWindow( QWidget *parent )
 	: QMainWindow( parent )
 	, ui( new Ui::MainWindow ) {
@@ -27,7 +30,7 @@ MainWindow::MainWindow( QWidget *parent )
 	// 注册按钮控件的单击事件。输入参数依次为：按钮，事件类型，回调方法
 	connect( btn_choose, &QPushButton::clicked, [=]( ) {
 		// 对话框的输入参数依次为：上级窗口，对话框标题，默认目录，文件过滤器
-		QString path = QFileDialog::getOpenFileName( this, "打开音频", "../file",
+		QString path = QFileDialog::getOpenFileName( this, "打开音频", ".",
 													"Audio files(*.mp3 *.aac *.m4a);;PCM files(*.pcm)" );
 		sprintf( m_audio_path, "%s", path.toStdString( ).c_str( ) );
 		qInfo( ) << "文件路径：" << m_audio_path << '\n';

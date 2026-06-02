@@ -47,10 +47,6 @@ set_target_properties( "${prject_name}" PROPERTIES
 )
 
 
-# # 生成文件
-set( cmake_definitions_env_out "${CMAKE_CURRENT_LIST_DIR}/auto_generate_files/macro/" )
-configure_temp_files( ${cmake_definitions_env_out} "${prject_name}" )
-
 if( MSVC )
 	target_compile_options( "${prject_name}" PRIVATE "/utf-8" )
 	un_show_include_info( ${prject_name} )
@@ -78,4 +74,3 @@ target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
 file( GLOB dll_file_s "${find_path}/lib/x64/*.dll" )
 copy_replace_mul_dir_path_cmake_file_command( FALSE "${app_run_bin}" dll_file_s )
 
-copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/resources/FFmpeg resources/fuzhou.mp4" "${app_run_bin}" FALSE )

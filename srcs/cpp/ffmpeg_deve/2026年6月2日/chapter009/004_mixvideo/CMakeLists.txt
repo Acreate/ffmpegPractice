@@ -47,10 +47,6 @@ set_target_properties( "${prject_name}" PROPERTIES
 )
 
 
-# # 生成文件
-set( cmake_definitions_env_out "${CMAKE_CURRENT_LIST_DIR}/auto_generate_files/macro/" )
-configure_temp_files( ${cmake_definitions_env_out} "${prject_name}" )
-
 if( MSVC )
 	target_compile_options( "${prject_name}" PRIVATE "/utf-8" )
 	un_show_include_info( ${prject_name} )
