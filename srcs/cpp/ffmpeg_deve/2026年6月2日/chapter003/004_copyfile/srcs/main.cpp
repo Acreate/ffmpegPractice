@@ -11,8 +11,8 @@ EXTERN_C {
 }
 
 int main( int argc, char *argv[ ], char *envp[ ] ) {
-	const char *src_name = "test.264";
-	const char *dest_name = "output_mux264.mp4";
+	const char *src_name = "fuzhou.mp4";
+	const char *dest_name = "output_copyfile.mp4";
 	if( argc > 1 ) {
 		src_name = argv[ 1 ];
 	}
@@ -64,8 +64,7 @@ int main( int argc, char *argv[ ], char *envp[ ] ) {
 		AVStream *dest_video = avformat_new_stream( out_fmt_ctx, NULL ); // 创建数据流
 		// 把源文件的视频参数原样复制过来
 		avcodec_parameters_copy( dest_video->codecpar, src_video->codecpar );
-		// 如果后面有对视频帧转换时间基，这里就无需复制时间基
-		//dest_video->time_base = src_video->time_base;
+		dest_video->time_base = src_video->time_base;
 		dest_video->codecpar->codec_tag = 0;
 	}
 	if( audio_index >= 0 ) { // 源文件有音频流，就给目标文件创建音频流
@@ -81,33 +80,16 @@ int main( int argc, char *argv[ ], char *envp[ ] ) {
 	}
 	av_log( NULL, AV_LOG_INFO, "Success write file_header.\n" );
 
-	int packet_index = 0; // 数据包的索引序号
-	AVStream *in_stream = NULL, *out_stream = NULL;
 	AVPacket *packet = av_packet_alloc( ); // 分配一个数据包
 	while( av_read_frame( in_fmt_ctx, packet ) >= 0 ) { // 轮询数据包
+		// 有的文件视频流没在第一路，需要调整到第一路，因为目标的视频流默认第一路
 		if( packet->stream_index == video_index ) { // 视频包
 			packet->stream_index = 0;
-			in_stream = in_fmt_ctx->streams[ video_index ];
-			out_stream = out_fmt_ctx->streams[ video_index ];
-		} else if( packet->stream_index == audio_index ) { // 音频包
+			ret = av_write_frame( out_fmt_ctx, packet ); // 往文件写入一个数据包
+		} else { // 音频包
 			packet->stream_index = 1;
-			in_stream = in_fmt_ctx->streams[ audio_index ];
-			out_stream = out_fmt_ctx->streams[ audio_index ];
+			ret = av_write_frame( out_fmt_ctx, packet ); // 往文件写入一个数据包
 		}
-		// 摄像头直接保存的h264文件，重新编码时得另外加时间戳
-		if( packet->stream_index == 0
-			&& packet->pts == AV_NOPTS_VALUE ) { // 未定义的时间戳
-			// 计算两帧之间的间隔。如果帧率为25，那么两帧间隔0.04秒
-			double interval = 1.0 / av_q2d( in_stream->r_frame_rate );
-			// 给各帧的时间戳重新赋值
-			packet->pts = packet_index * interval / av_q2d( in_stream->time_base );
-			packet->dts = packet->pts;
-			packet->duration = interval / av_q2d( in_stream->time_base );
-			packet_index++;
-		}
-		// 把数据包的时间戳从一个时间基转换为另一个时间基
-		av_packet_rescale_ts( packet, in_stream->time_base, out_stream->time_base );
-		ret = av_write_frame( out_fmt_ctx, packet ); // 往文件写入一个数据包
 		if( ret < 0 ) {
 			av_log( NULL, AV_LOG_ERROR, "write frame occur error %d.\n", ret );
 			break;
@@ -115,7 +97,7 @@ int main( int argc, char *argv[ ], char *envp[ ] ) {
 		av_packet_unref( packet ); // 清除数据包
 	}
 	av_write_trailer( out_fmt_ctx ); // 写文件尾
-	av_log( NULL, AV_LOG_INFO, "Success mux file.\n" );
+	av_log( NULL, AV_LOG_INFO, "Success copy file.\n" );
 
 	av_packet_free( &packet ); // 释放数据包资源
 	avio_close( out_fmt_ctx->pb ); // 关闭输出流

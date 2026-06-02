@@ -11,8 +11,8 @@ EXTERN_C {
 }
 
 int main( int argc, char *argv[ ], char *envp[ ] ) {
-	const char *src_name = "test.264";
-	const char *dest_name = "output_mux264.mp4";
+	const char *src_name = "fuzhou.mp4";
+	const char *dest_name = "output_splitvideo.mp4";
 	if( argc > 1 ) {
 		src_name = argv[ 1 ];
 	}
@@ -38,12 +38,9 @@ int main( int argc, char *argv[ ], char *envp[ ] ) {
 	int video_index = av_find_best_stream( in_fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0 );
 	if( video_index >= 0 ) {
 		src_video = in_fmt_ctx->streams[ video_index ];
-	}
-	AVStream *src_audio = NULL;
-	// 找到音频流的索引
-	int audio_index = av_find_best_stream( in_fmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0 );
-	if( audio_index >= 0 ) {
-		src_audio = in_fmt_ctx->streams[ audio_index ];
+	} else {
+		av_log( NULL, AV_LOG_ERROR, "Can't find video stream.\n" );
+		return -1;
 	}
 
 	AVFormatContext *out_fmt_ctx; // 输出文件的封装器实例
@@ -60,19 +57,13 @@ int main( int argc, char *argv[ ], char *envp[ ] ) {
 		return -1;
 	}
 	av_log( NULL, AV_LOG_INFO, "Success open output_file %s.\n", dest_name );
+	AVStream *dest_video = NULL;
 	if( video_index >= 0 ) { // 源文件有视频流，就给目标文件创建视频流
-		AVStream *dest_video = avformat_new_stream( out_fmt_ctx, NULL ); // 创建数据流
+		dest_video = avformat_new_stream( out_fmt_ctx, NULL ); // 创建数据流
 		// 把源文件的视频参数原样复制过来
 		avcodec_parameters_copy( dest_video->codecpar, src_video->codecpar );
-		// 如果后面有对视频帧转换时间基，这里就无需复制时间基
-		//dest_video->time_base = src_video->time_base;
+		dest_video->time_base = src_video->time_base;
 		dest_video->codecpar->codec_tag = 0;
-	}
-	if( audio_index >= 0 ) { // 源文件有音频流，就给目标文件创建音频流
-		AVStream *dest_audio = avformat_new_stream( out_fmt_ctx, NULL ); // 创建数据流
-		// 把源文件的音频参数原样复制过来
-		avcodec_parameters_copy( dest_audio->codecpar, src_audio->codecpar );
-		dest_audio->codecpar->codec_tag = 0;
 	}
 	ret = avformat_write_header( out_fmt_ctx, NULL ); // 写文件头
 	if( ret < 0 ) {
@@ -81,41 +72,45 @@ int main( int argc, char *argv[ ], char *envp[ ] ) {
 	}
 	av_log( NULL, AV_LOG_INFO, "Success write file_header.\n" );
 
-	int packet_index = 0; // 数据包的索引序号
-	AVStream *in_stream = NULL, *out_stream = NULL;
+	double begin_time = 5.0; // 切割开始时间，单位秒
+	double end_time = 15.0; // 切割结束时间，单位秒
+	// 计算开始切割位置的播放时间戳
+	int64_t begin_video_pts = begin_time / av_q2d( src_video->time_base );
+	// 计算结束切割位置的播放时间戳
+	int64_t end_video_pts = end_time / av_q2d( src_video->time_base );
+	av_log( NULL, AV_LOG_INFO, "begin_video_pts=%d, end_video_pts=%d\n", begin_video_pts, end_video_pts );
+	// 寻找指定时间戳的关键帧，并非begin_video_pts所处的精确位置，而是离begin_video_pts最近的关键帧
+	ret = av_seek_frame( in_fmt_ctx, video_index, begin_video_pts,
+						AVSEEK_FLAG_FRAME | AVSEEK_FLAG_BACKWARD );
+	if( ret < 0 ) {
+		av_log( NULL, AV_LOG_ERROR, "seek video frame occur error %d.\n", ret );
+		return -1;
+	}
+
+	int64_t key_frame_pts = -1; // 关键帧的播放时间戳
 	AVPacket *packet = av_packet_alloc( ); // 分配一个数据包
 	while( av_read_frame( in_fmt_ctx, packet ) >= 0 ) { // 轮询数据包
-		if( packet->stream_index == video_index ) { // 视频包
-			packet->stream_index = 0;
-			in_stream = in_fmt_ctx->streams[ video_index ];
-			out_stream = out_fmt_ctx->streams[ video_index ];
-		} else if( packet->stream_index == audio_index ) { // 音频包
-			packet->stream_index = 1;
-			in_stream = in_fmt_ctx->streams[ audio_index ];
-			out_stream = out_fmt_ctx->streams[ audio_index ];
-		}
-		// 摄像头直接保存的h264文件，重新编码时得另外加时间戳
-		if( packet->stream_index == 0
-			&& packet->pts == AV_NOPTS_VALUE ) { // 未定义的时间戳
-			// 计算两帧之间的间隔。如果帧率为25，那么两帧间隔0.04秒
-			double interval = 1.0 / av_q2d( in_stream->r_frame_rate );
-			// 给各帧的时间戳重新赋值
-			packet->pts = packet_index * interval / av_q2d( in_stream->time_base );
-			packet->dts = packet->pts;
-			packet->duration = interval / av_q2d( in_stream->time_base );
-			packet_index++;
-		}
-		// 把数据包的时间戳从一个时间基转换为另一个时间基
-		av_packet_rescale_ts( packet, in_stream->time_base, out_stream->time_base );
-		ret = av_write_frame( out_fmt_ctx, packet ); // 往文件写入一个数据包
-		if( ret < 0 ) {
-			av_log( NULL, AV_LOG_ERROR, "write frame occur error %d.\n", ret );
-			break;
+		if( packet->stream_index == video_index ) { // 为视频流
+			packet->stream_index = 0; // 视频流默认在第一路
+			if( key_frame_pts == -1 ) { // 保存最靠近begin_video_pts的关键帧时间戳
+				key_frame_pts = packet->pts;
+			}
+			if( packet->pts > key_frame_pts + end_video_pts - begin_video_pts ) {
+				break; // 比切割的结束时间大，就结束切割
+			}
+			//            av_log(NULL, AV_LOG_INFO, "packet->pts=%d, packet->dts=%d\n", packet->pts, packet->dts);
+			packet->pts = packet->pts - key_frame_pts; // 调整视频包的播放时间戳
+			packet->dts = packet->dts - key_frame_pts; // 调整视频包的解码时间戳
+			ret = av_write_frame( out_fmt_ctx, packet ); // 往文件写入一个数据包
+			if( ret < 0 ) {
+				av_log( NULL, AV_LOG_ERROR, "write frame occur error %d.\n", ret );
+				break;
+			}
 		}
 		av_packet_unref( packet ); // 清除数据包
 	}
 	av_write_trailer( out_fmt_ctx ); // 写文件尾
-	av_log( NULL, AV_LOG_INFO, "Success mux file.\n" );
+	av_log( NULL, AV_LOG_INFO, "Success split video.\n" );
 
 	av_packet_free( &packet ); // 释放数据包资源
 	avio_close( out_fmt_ctx->pb ); // 关闭输出流
