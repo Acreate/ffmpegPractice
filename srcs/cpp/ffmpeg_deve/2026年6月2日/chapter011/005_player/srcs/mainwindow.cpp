@@ -35,7 +35,7 @@ MainWindow::MainWindow( QWidget *parent )
 	// 注册按钮控件的单击事件。输入参数依次为：按钮，事件类型，回调方法
 	connect( btn_choose, &QPushButton::clicked, [=]( ) {
 		// 对话框的输入参数依次为：上级窗口，对话框标题，默认目录，文件过滤器
-		QString path = QFileDialog::getOpenFileName( this, "打开视频", "../file",
+		QString path = QFileDialog::getOpenFileName( this, "打开视频", ".",
 													"Video files(*.mp4 *.m4v *.mov *.3gp *.avc *.hevc *.ts *.flv *.asf *.wmv *.avi *.mkv *.mpg *.rm *.rmvb *.vob *.webm);;Audio files(*.mp3 *.aac *.m4a *.wav *.ra *.ogg *.amr *.wma *.opus)" );
 		if( !path.isEmpty( ) ) {
 			sprintf( m_video_path, "%s", path.toStdString( ).c_str( ) );

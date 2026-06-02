@@ -126,7 +126,6 @@ target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
 file( GLOB lib_file_s "${CMAKE_HOME_DIRECTORY}/lib/*.a" )
 target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
 
-
 set( find_path "${CMAKE_HOME_DIRECTORY}/srcs/lib/SDL2-2.32.10" )
 target_include_directories( ${prject_name} PRIVATE "${find_path}/include" )
 file( GLOB lib_file_s "${find_path}/lib/x64/*.lib" )
@@ -135,3 +134,6 @@ file( GLOB lib_file_s "${CMAKE_HOME_DIRECTORY}/lib/x64/*.a" )
 target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
 file( GLOB dll_file_s "${find_path}/lib/x64/*.dll" )
 copy_replace_mul_dir_path_cmake_file_command( FALSE "${app_run_bin}" dll_file_s )
+
+copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/resources/FFmpeg resources/fuzhou.mp4" "${app_run_bin}" FALSE )
+
