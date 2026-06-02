@@ -17,7 +17,7 @@ EXTERN_C {
 // 引入SDL要增加下面的声明#undef main，否则编译会报错“undefined reference to `WinMain'”
 #undef main
 
-#define MAX_AUDIO_FRAME_SIZE 80960 // 一帧音频最大长度（样本数），该值不能太小
+#define MAX_AUDIO_FRAME_SIZE 8096 // 一帧音频最大长度（样本数），该值不能太小
 int audio_len = 0; // 一帧PCM音频的数据长度
 unsigned char *audio_pos = NULL; // 当前读取的位置
 
@@ -44,11 +44,6 @@ AVFrame *video_frame = NULL; // 声明一个视频帧
 int out_buffer_size; // 缓冲区的大小
 unsigned char *out_buff; // 缓冲区的位置
 
-enum AVSampleFormat out_sample_fmt; // 输出的采样格式
-int out_sample_rate; // 输出的采样率
-int out_nb_samples; // 输出的采样数量
-int out_channels; // 输出的声道数量
-
 typedef struct PacketGroup {
 	AVPacket packet; // 当前的数据包
 	struct PacketGroup *next; // 下一个数据包组合
@@ -60,46 +55,42 @@ typedef struct PacketQueue {
 } PacketQueue; // 定义数据包队列结构
 
 int interval; // 视频帧之间的播放间隔
-int can_play_video = 0; // 是否正在播放视频
-int is_end = 0; // 是否到达末尾
-int force_close = 0; // 是否强制关闭
+int play_video = 0; // 是否正在播放视频
+int is_close = 0; // 是否关闭窗口
 int has_audio = 0; // 是否拥有音频流
 double audio_time = 0; // 音频时钟，当前音频包对应的时间值
-SDL_mutex *audio_list_lock = NULL; // 声明一个音频包队列锁，防止线程间同时操作包队列
-SDL_Thread *audio_thread = NULL; // 声明一个音频处理线程
-PacketQueue packet_audio_list; // 存放音频包的队列
 double video_time = 0; // 视频时钟，当前视频包对应的时间值
-SDL_mutex *video_list_lock = NULL; // 声明一个视频包的队列锁，防止线程间同时操作包队列
+SDL_mutex *list_lock = NULL; // 声明一个队列锁，防止线程间同时操作包队列
 SDL_mutex *frame_lock = NULL; // 声明一个帧锁，防止线程间同时操作视频帧
-SDL_Thread *video_thread = NULL; // 声明一个视频处理线程
-PacketQueue packet_video_list; // 存放视频包的队列
+SDL_Thread *sdl_thread = NULL; // 声明一个SDL线程
+PacketQueue packet_list; // 存放视频包的队列
 
 // 数据包入列
-void push_packet( PacketQueue *packet_list, AVPacket packet ) {
+void push_packet( AVPacket packet ) {
 	PacketGroup *this_pkt = ( PacketGroup * ) av_malloc( sizeof( PacketGroup ) );
 	this_pkt->packet = packet;
 	this_pkt->next = NULL;
-	if( packet_list->first_pkt == NULL ) {
-		packet_list->first_pkt = this_pkt;
+	if( packet_list.first_pkt == NULL ) {
+		packet_list.first_pkt = this_pkt;
 	}
-	if( packet_list->last_pkt == NULL ) {
+	if( packet_list.last_pkt == NULL ) {
 		PacketGroup *last_pkt = ( PacketGroup * ) av_malloc( sizeof( PacketGroup ) );
-		packet_list->last_pkt = last_pkt;
+		packet_list.last_pkt = last_pkt;
 	}
-	packet_list->last_pkt->next = this_pkt;
-	packet_list->last_pkt = this_pkt;
+	packet_list.last_pkt->next = this_pkt;
+	packet_list.last_pkt = this_pkt;
 	return;
 }
 
 // 数据包出列
-AVPacket pop_packet( PacketQueue *packet_list ) {
-	PacketGroup *first_pkt = packet_list->first_pkt;
-	packet_list->first_pkt = packet_list->first_pkt->next;
+AVPacket pop_packet( ) {
+	PacketGroup *first_pkt = packet_list.first_pkt;
+	packet_list.first_pkt = packet_list.first_pkt->next;
 	return first_pkt->packet;
 }
 
 // 判断队列是否为空
-int is_empty( PacketQueue packet_list ) {
+int is_empty( ) {
 	return packet_list.first_pkt == NULL ? 1 : 0;
 }
 
@@ -109,18 +100,11 @@ void fill_audio( void *para, uint8_t *stream, int len ) {
 	if( audio_len == 0 ) {
 		return;
 	}
-	while( len > 0 ) { // 每次都要凑足len个字节才能退出循环
-		int fill_len = ( len > audio_len ? audio_len : len );
-		// 将音频数据混合到缓冲区
-		SDL_MixAudio( stream, audio_pos, fill_len, SDL_MIX_MAXVOLUME );
-		audio_pos += fill_len;
-		audio_len -= fill_len;
-		len -= fill_len;
-		stream += fill_len;
-		if( audio_len == 0 ) { // 这里要延迟一会儿，避免一直占据IO资源
-			SDL_Delay( 1 );
-		}
-	}
+	len = ( len > audio_len ? audio_len : len );
+	// 将音频数据混合到缓冲区
+	SDL_MixAudio( stream, audio_pos, len, SDL_MIX_MAXVOLUME );
+	audio_pos += len;
+	audio_len -= len;
 }
 
 // 打开输入文件
@@ -191,36 +175,11 @@ int open_input_file( const char *src_name ) {
 
 // 初始化图像转换器的实例
 int init_sws_context( void ) {
-	int origin_width = video_decode_ctx->width;
-	int origin_height = video_decode_ctx->height;
-	AVRational aspect_ratio = src_video->codecpar->sample_aspect_ratio;
-	AVRational display_aspect_ratio;
-	av_reduce( &display_aspect_ratio.num, &display_aspect_ratio.den,
-				origin_width * aspect_ratio.num,
-				origin_height * aspect_ratio.den,
-				1024 * 1024 );
-	av_log( NULL, AV_LOG_INFO, "origin size is %dx%d, SAR %d:%d, DAR %d:%d\n",
-			origin_width, origin_height,
-			aspect_ratio.num, aspect_ratio.den,
-			display_aspect_ratio.num, display_aspect_ratio.den );
-	int real_width = origin_width;
-	// 第一种方式：根据SAR的采样宽高比，由原始的宽度算出实际的宽度
-	if( aspect_ratio.num != 0 && aspect_ratio.den != 0 && aspect_ratio.num != aspect_ratio.den ) {
-		real_width = origin_width * aspect_ratio.num / aspect_ratio.den;
-	}
-	target_height = 270;
-	target_width = target_height * origin_width / origin_height;
-	// 第二种方式：根据DAR的显示宽高比，由目标的高度算出目标的宽度
-	if( aspect_ratio.num != 0 && aspect_ratio.den != 0 && aspect_ratio.num != aspect_ratio.den ) {
-		target_width = target_height * display_aspect_ratio.num / display_aspect_ratio.den;
-	}
-	av_log( NULL, AV_LOG_INFO, "real size is %dx%d, target_width=%d, target_height=%d\n",
-			real_width, origin_height, target_width, target_height );
-	//    target_width = 480;
-	//    target_height = target_width*video_decode_ctx->height/video_decode_ctx->width;
+	target_width = 480;
+	target_height = target_width * video_decode_ctx->height / video_decode_ctx->width;
 	// 分配图像转换器的实例，并分别指定来源和目标的宽度、高度、像素格式
 	swsContext = sws_getContext(
-		origin_width, origin_height, AV_PIX_FMT_YUV420P,
+		video_decode_ctx->width, video_decode_ctx->height, AV_PIX_FMT_YUV420P,
 		target_width, target_height, target_format,
 		SWS_FAST_BILINEAR, NULL, NULL, NULL );
 	if( swsContext == NULL ) {
@@ -244,75 +203,20 @@ int init_sws_context( void ) {
 	return 0;
 }
 
-// 音频分线程的任务处理
-int thread_work_audio( void *arg ) {
-	av_log( NULL, AV_LOG_INFO, "thread_work_audio\n" );
-	int swr_size = 0;
+// 分线程的任务处理
+int thread_work( void *arg ) {
 	while( 1 ) {
-		if( force_close || ( is_end && is_empty( packet_audio_list ) ) ) { // 关闭窗口了
+		if( is_close ) { // 关闭窗口了
 			break;
 		}
-		SDL_LockMutex( audio_list_lock ); // 对音频队列锁加锁
-		if( is_empty( packet_audio_list ) ) {
-			SDL_UnlockMutex( audio_list_lock ); // 对音频队列锁解锁
+		SDL_LockMutex( list_lock ); // 对队列锁加锁
+		if( is_empty( ) ) {
+			SDL_UnlockMutex( list_lock ); // 对队列锁解锁
 			SDL_Delay( 5 ); // 延迟若干时间，单位毫秒
 			continue;
 		}
-		AVPacket packet = pop_packet( &packet_audio_list ); // 取出头部的音频包
-		SDL_UnlockMutex( audio_list_lock ); // 对音频队列锁解锁
-		AVFrame *frame = av_frame_alloc( ); // 分配一个数据帧
-		// 发送压缩数据到解码器
-		int ret = avcodec_send_packet( audio_decode_ctx, &packet );
-		if( ret < 0 ) {
-			av_log( NULL, AV_LOG_ERROR, "send packet occur error %d.\n", ret );
-			continue;
-		}
-		while( 1 ) {
-			// 从解码器实例获取还原后的数据帧
-			ret = avcodec_receive_frame( audio_decode_ctx, frame );
-			if( ret == AVERROR( EAGAIN ) || ret == AVERROR_EOF ) {
-				break;
-			} else if( ret < 0 ) {
-				av_log( NULL, AV_LOG_ERROR, "decode frame occur error %d.\n", ret );
-				break;
-			}
-			//av_log(NULL, AV_LOG_INFO, "%d ", frame->nb_samples);
-			av_log( NULL, AV_LOG_INFO, "audio pts %lld \n", frame->pts );
-			while( audio_len > 0 ) { // 如果还没播放完，就等待1ms
-				SDL_Delay( 1 ); // 延迟若干时间，单位毫秒
-			}
-			// 重采样。也就是把输入的音频数据根据指定的采样规格转换为新的音频数据输出
-			swr_size = swr_convert( swr_ctx, // 音频采样器的实例
-									&out_buff, MAX_AUDIO_FRAME_SIZE, // 输出的数据内容和数据大小
-									( const uint8_t ** ) frame->data, frame->nb_samples ); // 输入的数据内容和数据大小
-			audio_pos = ( unsigned char * ) out_buff; // 把音频数据同步到缓冲区位置
-			// 这里要计算实际的采样位数
-			audio_len = swr_size * out_channels * av_get_bytes_per_sample( out_sample_fmt );
-			has_audio = 1; // 找到了音频流
-			if( packet.pts != AV_NOPTS_VALUE ) { // 保存音频时钟
-				audio_time = av_q2d( src_audio->time_base ) * packet.pts;
-			}
-		}
-		av_packet_unref( &packet ); // 清除数据包
-	}
-	return 0;
-}
-
-// 视频分线程的任务处理
-int thread_work_video( void *arg ) {
-	av_log( NULL, AV_LOG_INFO, "thread_work_video\n" );
-	while( 1 ) {
-		if( force_close || ( is_end && is_empty( packet_video_list ) ) ) { // 关闭窗口了
-			break;
-		}
-		SDL_LockMutex( video_list_lock ); // 对视频队列锁加锁
-		if( is_empty( packet_video_list ) ) {
-			SDL_UnlockMutex( video_list_lock ); // 对视频队列锁解锁
-			SDL_Delay( 5 ); // 延迟若干时间，单位毫秒
-			continue;
-		}
-		AVPacket packet = pop_packet( &packet_video_list ); // 取出头部的视频包
-		SDL_UnlockMutex( video_list_lock ); // 对视频队列锁解锁
+		AVPacket packet = pop_packet( ); // 取出头部的视频包
+		SDL_UnlockMutex( list_lock ); // 对队列锁解锁
 
 		if( packet.dts != AV_NOPTS_VALUE ) { // 保存视频时钟
 			video_time = av_q2d( src_video->time_base ) * packet.dts;
@@ -346,14 +250,13 @@ int thread_work_video( void *arg ) {
 			av_frame_get_buffer( video_frame, 32 ); // 重新分配数据帧的缓冲区（储存视频或音频要用）
 			av_frame_copy( video_frame, sws_frame ); // 复制数据帧的缓冲区数据
 			av_frame_copy_props( video_frame, sws_frame ); // 复制数据帧的元数据
-			can_play_video = 1; // 可以播放视频了
-			av_log( NULL, AV_LOG_INFO, "video pts %lld \n", frame->pts );
+			play_video = 1; // 可以播放视频了
 			SDL_UnlockMutex( frame_lock ); // 对帧锁解锁
 			if( has_audio ) { // 存在音频流
 				// 如果视频包太早被解码出来，就要等待同时刻的音频时钟
 				while( video_time > audio_time ) {
 					SDL_Delay( 5 ); // 延迟若干时间，单位毫秒
-					if( force_close ) {
+					if( is_close ) {
 						break;
 					}
 				}
@@ -396,12 +299,12 @@ int prepare_video( void ) {
 	rect.w = target_width; // 视频宽度
 	rect.h = target_height; // 视频高度
 
-	video_list_lock = SDL_CreateMutex( ); // 创建互斥锁，用于调度队列
+	list_lock = SDL_CreateMutex( ); // 创建互斥锁，用于调度队列
 	frame_lock = SDL_CreateMutex( ); // 创建互斥锁，用于调度视频帧
 	// 创建SDL线程，指定任务处理函数，并返回线程编号
-	video_thread = SDL_CreateThread( thread_work_video, "thread_work_video", NULL );
-	if( !video_thread ) {
-		av_log( NULL, AV_LOG_ERROR, "sdl create video thread occur error\n" );
+	sdl_thread = SDL_CreateThread( thread_work, "thread_work", NULL );
+	if( !sdl_thread ) {
+		av_log( NULL, AV_LOG_ERROR, "sdl create thread occur error\n" );
 		return -1;
 	}
 	return 0;
@@ -409,15 +312,15 @@ int prepare_video( void ) {
 
 // 准备SDL音频相关资源
 int prepare_audio( void ) {
-	AVChannelLayout out_ch_layout = audio_decode_ctx->ch_layout; // 输出的声道布局
-	out_sample_fmt = AV_SAMPLE_FMT_S16; // 输出的采样格式
-	out_sample_rate = audio_decode_ctx->sample_rate; // 输出的采样率
-	out_nb_samples = audio_decode_ctx->frame_size; // 输出的采样数量
-	out_channels = out_ch_layout.nb_channels; // 输出的声道数量
-	if( out_nb_samples <= 0 ) {
-		out_nb_samples = 512;
+	AVChannelLayout out_ch_layout = AV_CHANNEL_LAYOUT_STEREO; // 输出的声道布局
+	enum AVSampleFormat out_sample_fmt = AV_SAMPLE_FMT_S16; // 输出的采样格式
+	int out_sample_rate = 44100; // 输出的采样率
+	int out_nb_samples = audio_decode_ctx->frame_size; // 输出的采样数量
+	int out_channels = out_ch_layout.nb_channels; // 输出的声道数量
+	if( out_nb_samples == 0 ) {
+		av_log( NULL, AV_LOG_ERROR, "unknown audio nb_samples\n" );
+		return -1;
 	}
-	av_log( NULL, AV_LOG_INFO, "out_sample_rate=%d, out_nb_samples=%d\n", out_sample_rate, out_nb_samples );
 	int ret = swr_alloc_set_opts2( &swr_ctx, // 音频采样器的实例
 									&out_ch_layout, // 输出的声道布局
 									out_sample_fmt, // 输出的采样格式
@@ -453,73 +356,30 @@ int prepare_audio( void ) {
 		return -1;
 	}
 	SDL_PauseAudio( 0 ); // 播放/暂停音频。参数为0表示播放，为1表示暂停
-
-	audio_list_lock = SDL_CreateMutex( ); // 创建互斥锁，用于调度队列
-	// 创建SDL线程，指定任务处理函数，并返回线程编号
-	audio_thread = SDL_CreateThread( thread_work_audio, "thread_work_audio", NULL );
-	if( !audio_thread ) {
-		av_log( NULL, AV_LOG_ERROR, "sdl create audio thread occur error\n" );
-		return -1;
-	}
-	return 0;
-}
-
-// 播放视频画面
-int play_video_frame( void ) {
-	if( can_play_video ) { // 允许播放视频
-		SDL_LockMutex( frame_lock ); // 对帧锁加锁
-		can_play_video = 0;
-		// 刷新YUV纹理
-		SDL_UpdateYUVTexture( texture, NULL,
-							video_frame->data[ 0 ], video_frame->linesize[ 0 ],
-							video_frame->data[ 1 ], video_frame->linesize[ 1 ],
-							video_frame->data[ 2 ], video_frame->linesize[ 2 ] );
-		//SDL_RenderClear(renderer); // 清空渲染器
-		SDL_RenderCopy( renderer, texture, NULL, &rect ); // 将纹理复制到渲染器
-		SDL_RenderPresent( renderer ); // 渲染器开始渲染
-		//        av_log(NULL, AV_LOG_INFO, "render a video frame %lf %lf\n", video_time, audio_time);
-		SDL_UnlockMutex( frame_lock ); // 对帧锁解锁
-		SDL_PollEvent( &event ); // 轮询SDL事件
-		switch( event.type ) {
-			case SDL_QUIT : // 如果命令关闭窗口（单击了窗口右上角的叉号）
-				force_close = 1;
-				return -1;
-			default :
-				break;
-		}
-	}
 	return 0;
 }
 
 // 释放资源
 void release( void ) {
-	if( audio_index >= 0 ) {
-		av_log( NULL, AV_LOG_INFO, "begin release audio resource\n" );
-		int audio_status; // 线程的结束标志
-		SDL_WaitThread( audio_thread, &audio_status ); // 等待线程结束，结束标志在status字段返回
-		SDL_DestroyMutex( audio_list_lock ); // 销毁音频队列锁
-		av_log( NULL, AV_LOG_INFO, "audio_thread audio_status=%d\n", audio_status );
-		//avcodec_close( audio_decode_ctx ); // 关闭音频解码器的实例
-		avcodec_free_context( &audio_decode_ctx ); // 释放音频解码器的实例
-		swr_free( &swr_ctx ); // 释放音频采样器的实例
-		SDL_CloseAudio( ); // 关闭扬声器
-		av_log( NULL, AV_LOG_INFO, "end release audio resource\n" );
-	}
 	if( video_index >= 0 ) {
-		av_log( NULL, AV_LOG_INFO, "begin release video resource\n" );
 		sws_freeContext( swsContext ); // 释放图像转换器的实例
 		av_frame_free( &video_frame ); // 释放数据帧资源
-		int video_status; // 线程的结束标志
-		SDL_WaitThread( video_thread, &video_status ); // 等待线程结束，结束标志在status字段返回
-		SDL_DestroyMutex( video_list_lock ); // 销毁视频队列锁
+		int finish_status; // 线程的结束标志
+		SDL_WaitThread( sdl_thread, &finish_status ); // 等待线程结束，结束标志在status字段返回
+		SDL_DestroyMutex( list_lock ); // 销毁队列锁
 		SDL_DestroyMutex( frame_lock ); // 销毁帧锁
-		av_log( NULL, AV_LOG_INFO, "video_thread video_status=%d\n", video_status );
+		av_log( NULL, AV_LOG_INFO, "sdl_thread finish_status=%d\n", finish_status );
 		//avcodec_close( video_decode_ctx ); // 关闭视频解码器的实例
 		avcodec_free_context( &video_decode_ctx ); // 释放视频解码器的实例
 		SDL_DestroyTexture( texture ); // 销毁SDL纹理
 		SDL_DestroyRenderer( renderer ); // 销毁SDL渲染器
 		SDL_DestroyWindow( window ); // 销毁SDL窗口
-		av_log( NULL, AV_LOG_INFO, "end release video resource\n" );
+	}
+	if( audio_index >= 0 ) {
+		//avcodec_close( audio_decode_ctx ); // 关闭音频解码器的实例
+		avcodec_free_context( &audio_decode_ctx ); // 释放音频解码器的实例
+		swr_free( &swr_ctx ); // 释放音频采样器的实例
+		SDL_CloseAudio( ); // 关闭扬声器
 	}
 	SDL_Quit( ); // 退出SDL
 	avformat_close_input( &in_fmt_ctx ); // 关闭音视频文件
@@ -549,43 +409,74 @@ int main( int argc, char **argv ) {
 
 	int ret;
 	AVPacket *packet = av_packet_alloc( ); // 分配一个数据包
+	AVFrame *audio_frame = av_frame_alloc( ); // 分配一个数据帧
 	video_frame = av_frame_alloc( ); // 分配一个数据帧
 	while( av_read_frame( in_fmt_ctx, packet ) >= 0 ) { // 轮询数据包
 		if( packet->stream_index == audio_index ) { // 音频包需要解码
-			//            av_log(NULL, AV_LOG_INFO, "audio_index %d\n", packet->pts);
-			SDL_LockMutex( audio_list_lock ); // 对音频队列锁加锁
-			push_packet( &packet_audio_list, *packet ); // 把音频包加入队列
-			SDL_UnlockMutex( audio_list_lock ); // 对音频队列锁解锁
-			//SDL_Delay(5); // 延迟若干时间，单位毫秒
+			// 把未解压的数据包发给解码器实例
+			ret = avcodec_send_packet( audio_decode_ctx, packet );
+			if( ret == 0 ) {
+				// 从解码器实例获取还原后的数据帧
+				ret = avcodec_receive_frame( audio_decode_ctx, audio_frame );
+				if( ret == AVERROR( EAGAIN ) || ret == AVERROR_EOF ) {
+					continue;
+				} else if( ret < 0 ) {
+					av_log( NULL, AV_LOG_ERROR, "decode frame occur error %d.\n", ret );
+					continue;
+				}
+				while( audio_len > 0 ) { // 如果还没播放完，就等待1ms
+					SDL_Delay( 1 ); // 延迟若干时间，单位毫秒
+				}
+				// 重采样。也就是把输入的音频数据根据指定的采样规格转换为新的音频数据输出
+				swr_convert( swr_ctx, // 音频采样器的实例
+							&out_buff, MAX_AUDIO_FRAME_SIZE, // 输出的数据内容和数据大小
+							( const uint8_t ** ) audio_frame->data, audio_frame->nb_samples ); // 输入的数据内容和数据大小
+				audio_pos = ( unsigned char * ) out_buff; // 把音频数据同步到缓冲区位置
+				audio_len = out_buffer_size; // 缓冲区大小
+				has_audio = 1; // 找到了音频流
+				if( packet->pts != AV_NOPTS_VALUE ) { // 保存音频时钟
+					audio_time = av_q2d( src_audio->time_base ) * packet->pts;
+				}
+			} else {
+				av_log( NULL, AV_LOG_ERROR, "send packet occur error %d.\n", ret );
+			}
 		} else if( packet->stream_index == video_index ) { // 视频包需要解码
-			//            av_log(NULL, AV_LOG_INFO, "video_index %d\n", packet->pts);
-			SDL_LockMutex( video_list_lock ); // 对视频队列锁加锁
-			push_packet( &packet_video_list, *packet ); // 把视频包加入队列
-			SDL_UnlockMutex( video_list_lock ); // 对视频队列锁解锁
+			SDL_LockMutex( list_lock ); // 对队列锁加锁
+			push_packet( *packet ); // 把视频包加入队列
+			SDL_UnlockMutex( list_lock ); // 对队列锁解锁
 			if( !has_audio ) { // 不存在音频流
 				SDL_Delay( interval ); // 延迟若干时间，单位毫秒
 			}
 		}
-		if( play_video_frame( ) == -1 ) { // 播放视频画面
-			goto __QUIT;
-		}
-		av_log( NULL, AV_LOG_INFO, "video_time:%.1lf, audio_time:%.1lf\n", video_time, audio_time );
-		if( !is_empty( packet_audio_list ) && !is_empty( packet_video_list ) ) {
-			SDL_Delay( 15 ); // 延迟若干时间，单位毫秒
+		if( play_video ) { // 允许播放视频
+			SDL_LockMutex( frame_lock ); // 对帧锁加锁
+			play_video = 0;
+			// 刷新YUV纹理
+			SDL_UpdateYUVTexture( texture, NULL,
+								video_frame->data[ 0 ], video_frame->linesize[ 0 ],
+								video_frame->data[ 1 ], video_frame->linesize[ 1 ],
+								video_frame->data[ 2 ], video_frame->linesize[ 2 ] );
+			//SDL_RenderClear(renderer); // 清空渲染器
+			SDL_RenderCopy( renderer, texture, NULL, &rect ); // 将纹理复制到渲染器
+			SDL_RenderPresent( renderer ); // 渲染器开始渲染
+			//            av_log(NULL, AV_LOG_INFO, "render a video frame %lf %lf\n", video_time, audio_time);
+			SDL_UnlockMutex( frame_lock ); // 对帧锁解锁
+			SDL_PollEvent( &event ); // 轮询SDL事件
+			switch( event.type ) {
+				case SDL_QUIT : // 如果命令关闭窗口（单击了窗口右上角的叉号）
+					goto __QUIT; // 这里用goto不用break
+				default :
+					break;
+			}
 		}
 		//av_packet_unref(packet); // 清除数据包（注意这里不能清除，因为从队列取出后已经清除）
-	}
-	while( !is_empty( packet_video_list ) ) { // 播放剩余的视频画面
-		if( play_video_frame( ) == -1 ) {
-			goto __QUIT;
-		}
-		SDL_Delay( 5 ); // 延迟若干时间，单位毫秒
 	}
 	av_log( NULL, AV_LOG_INFO, "Success play video file with audio stream.\n" );
 
 __QUIT:
 	av_log( NULL, AV_LOG_INFO, "Close window.\n" );
-	is_end = 1;
+	is_close = 1;
+	av_frame_free( &audio_frame ); // 释放数据帧资源
 	release( ); // 释放资源
 	//    av_packet_free(&packet); // 释放数据包资源（不能重复调用av_packet_unref函数）
 	av_log( NULL, AV_LOG_INFO, "Quit SDL.\n" );
