@@ -1,5 +1,4 @@
-﻿#include <cmake_include_to_c_cpp_header_env.h>
-#ifdef __cplusplus
+﻿#ifdef __cplusplus
 #define  EXTERN_C extern "C"
 #else
 #define  EXTERN_C
@@ -9,21 +8,10 @@ EXTERN_C {
 	#include <libavcodec/avcodec.h>
 	#include <libavutil/avutil.h>
 	#include <libavutil/imgutils.h>
-	#include <libswresample/swresample.h>
-	#include <libswscale/swscale.h>
-	#include <libavformat/avformat.h>
-	#include <libavcodec/avcodec.h>
 	#include <libavfilter/avfilter.h>
 	#include <libavfilter/buffersink.h>
 	#include <libavfilter/buffersrc.h>
-	#include <libavutil/avutil.h>
-	#include <libavutil/opt.h>
-	#include <libavutil/pixdesc.h>
 }
-#define __STDC_CONSTANT_MACROS
-EXTERN_C {
-}
-
 AVFormatContext *in_fmt_ctx = NULL; // 输入文件的封装器实例
 AVCodecContext *video_decode_ctx = NULL; // 视频解码器的实例
 int video_index = -1; // 视频流的索引
@@ -260,7 +248,7 @@ int recode_video( AVPacket *packet, AVFrame *frame, AVFrame *filt_frame ) {
 }
 
 int main( int argc, char **argv ) {
-	const char *src_name = cmake_property_SOURCE_DIR "/../../FFmpeg resources/fuzhou.mp4";
+	const char *src_name = "fuzhou.mp4";
 	const char *dest_name = "output_gif.gif";
 	const char *filters_desc = "";
 	if( argc > 1 ) {
@@ -327,9 +315,7 @@ int main( int argc, char **argv ) {
 	av_frame_free( &frame ); // 释放数据帧资源
 	av_packet_free( &packet ); // 释放数据包资源
 	avio_close( out_fmt_ctx->pb ); // 关闭输出流
-	//avcodec_close( video_decode_ctx ); // 关闭视频解码器的实例
 	avcodec_free_context( &video_decode_ctx ); // 释放视频解码器的实例
-	//avcodec_close( video_encode_ctx ); // 关闭视频编码器的实例
 	avcodec_free_context( &video_encode_ctx ); // 释放视频编码器的实例
 	avformat_free_context( out_fmt_ctx ); // 释放封装器的实例
 	avformat_close_input( &in_fmt_ctx ); // 关闭音视频文件

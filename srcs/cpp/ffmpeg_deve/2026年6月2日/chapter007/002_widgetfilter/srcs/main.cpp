@@ -1,5 +1,4 @@
-﻿#include <cmake_include_to_c_cpp_header_env.h>
-#ifdef __cplusplus
+﻿#ifdef __cplusplus
 #define  EXTERN_C extern "C"
 #else
 #define  EXTERN_C
@@ -9,18 +8,10 @@ EXTERN_C {
 	#include <libavcodec/avcodec.h>
 	#include <libavutil/avutil.h>
 	#include <libavutil/imgutils.h>
-	#include <libswresample/swresample.h>
-	#include <libswscale/swscale.h>
-	#include <libavformat/avformat.h>
-	#include <libavcodec/avcodec.h>
 	#include <libavfilter/avfilter.h>
 	#include <libavfilter/buffersink.h>
 	#include <libavfilter/buffersrc.h>
-	#include <libavutil/avutil.h>
-	#include <libavutil/opt.h>
-}
-#define __STDC_CONSTANT_MACROS
-EXTERN_C {
+	#include <libavutil/pixdesc.h>
 }
 
 AVFormatContext *in_fmt_ctx = NULL; // 输入文件的封装器实例
@@ -37,11 +28,126 @@ AVFilterContext *buffersrc_ctx = NULL; // 输入滤镜的实例
 AVFilterContext *buffersink_ctx = NULL; // 输出滤镜的实例
 AVFilterGraph *filter_graph = NULL; // 滤镜图
 
+#include <iconv.h> // iconv用于字符内码转换
+
+int pre_num( unsigned char byte ) {
+	unsigned char mask = 0x80;
+	int num = 0;
+	int i = 0;
+	while( i++ < 8 ) {
+		if( ( byte & mask ) == mask ) {
+			mask = mask >> 1;
+			num++;
+		} else {
+			break;
+		}
+	}
+	return num;
+}
+
+// 是否为UTF-8编码
+int is_utf8( unsigned char *data, int len ) {
+	int num = 0;
+	int i = 0;
+	while( i < len ) {
+		if( ( data[ i ] & 0x80 ) == 0x00 ) {
+			i++;
+			continue;
+		} else if( ( num = pre_num( data[ i ] ) ) > 2 ) {
+			i++;
+			int j = 0;
+			while( j++ < num - 1 ) {
+				// 判断后面num - 1 个字节是不是都是10开
+				if( ( data[ i ] & 0xc0 ) != 0x80 ) {
+					return -1;
+				}
+				i++;
+			}
+		} else {
+			// 其他情况说明不是utf-8
+			return -1;
+		}
+	}
+	return 0;
+}
+
+// “流”的i+1编码为0xf7。GB2312的汉字编码范围是0xB0A1～0xF7FE，GBK的汉字编码范围是0x8140～0xFEFE，且剔除0x7F码位
+// 是否为GBK编码
+int is_gbk( unsigned char *data, int len ) {
+	int i = 0;
+	while( i < len ) {
+		if( data[ i ] <= 0x7f ) {
+			// 编码小于等于127，只有一个字节的编码，兼容ASCII
+			i++;
+			continue;
+		} else {
+			// 大于127的使用双字节编码
+			if( data[ i ] >= 0x81 &&
+				data[ i ] <= 0xfe &&
+				data[ i + 1 ] >= 0x40 &&
+				data[ i + 1 ] <= 0xfe ) {
+				i += 2;
+				continue;
+			} else {
+				return -1;
+			}
+		}
+	}
+	return 0;
+}
+
+// 是否为ASCII编码
+int is_ascii( unsigned char *data, int len ) {
+	int i = 0;
+	while( i < len ) {
+		if( data[ i ] <= 0x7f ) {
+			// 编码小于等于127,只有一个字节的编码，兼容ASCII
+			i++;
+			continue;
+		} else {
+			return -1;
+		}
+	}
+	return 0;
+}
+
+// 把字符串从GBK编码改为UTF-8编码
+int gbk_to_utf8( char *src_str, size_t src_len, char *dst_str, size_t dst_len ) {
+	iconv_t cd;
+	char **pin = &src_str;
+	char **pout = &dst_str;
+	cd = iconv_open( "UTF-8", "GBK" );
+	if( cd == NULL )
+		return -1;
+	memset( dst_str, 0, dst_len );
+	if( iconv( cd, ( const char ** ) pin, &src_len, pout, &dst_len ) == -1 )
+		return -1;
+	iconv_close( cd );
+	*pout[ 0 ] = '\0';
+	return 0;
+}
+
+// 把字符串从UTF-8编码改为GBK编码
+int utf8_to_gbk( char *src_str, size_t src_len, char *dst_str, size_t dst_len ) {
+	iconv_t cd;
+	char **pin = &src_str;
+	char **pout = &dst_str;
+	cd = iconv_open( "GBK", "UTF-8" );
+	if( cd == NULL )
+		return -1;
+	memset( dst_str, 0, dst_len );
+	if( iconv( cd, ( const char ** ) pin, &src_len, pout, &dst_len ) == -1 )
+		return -1;
+	iconv_close( cd );
+	*pout[ 0 ] = '\0';
+	return 0;
+}
+
 // 提取滤镜的名称
 char * get_filter_name( const char *filters_desc ) {
 	char *ptr = NULL;
 	int len_desc = strlen( filters_desc );
-	char *temp = new char [ len_desc + 1 ];
+	char *temp = new char[ len_desc + 1 ];
 	sprintf( temp, "%s", filters_desc );
 	char *value = strtok( temp, "=" );
 	av_log( NULL, AV_LOG_INFO, "find filter name: %s\n", value );
@@ -148,7 +254,6 @@ int open_output_file( const char *dest_name ) {
 		video_encode_ctx->gop_size = 12; // 关键帧的间隔距离
 		video_encode_ctx->width = av_buffersink_get_w( buffersink_ctx ); // 视频宽度
 		video_encode_ctx->height = av_buffersink_get_h( buffersink_ctx ); // 视频高度
-		//av_log(NULL, AV_LOG_INFO, "framerate.num=%d, framerate.den=%d\n", video_encode_ctx->framerate.num, video_encode_ctx->framerate.den);
 		// 视频的像素格式（颜色空间）
 		video_encode_ctx->pix_fmt = ( enum AVPixelFormat ) av_buffersink_get_format( buffersink_ctx );
 		//video_encode_ctx->max_b_frames = 0; // 0表示不要B帧
@@ -209,17 +314,20 @@ int init_filter( const char *filters_desc ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer source\n" );
 		return ret;
 	}
-	auto fixName = av_get_pix_fmt_name( AV_PIX_FMT_YUV420P );
-	AVDictionary *options = NULL;
-	ret = av_dict_set( &options, "pix_fmts", fixName, 0 );
+
+	// 将二进制选项设置为整数列表，此处给输出滤镜的实例设置像素格式
+	AVDictionary *option = nullptr;
+	auto avGetPixFmtName = av_get_pix_fmt_name( AV_PIX_FMT_NONE );
+	ret = av_dict_set( &option, "pix_fmts", avGetPixFmtName, 0 );
 	if( ret < 0 ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot set output pixel format\n" );
 		return ret;
 	}
+
 	// 创建输出滤镜的实例，并将其添加到现有的滤镜图
 	ret = avfilter_graph_create_filter( &buffersink_ctx, buffersink, "out",
-										NULL, &options, filter_graph );
-	av_dict_free( &options );
+										NULL, &option, filter_graph );
+	av_dict_free( &option );
 	if( ret < 0 ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer sink\n" );
 		return ret;
@@ -323,8 +431,11 @@ int recode_video( AVPacket *packet, AVFrame *frame, AVFrame *filt_frame ) {
 }
 
 int main( int argc, char **argv ) {
-	const char *src_name = cmake_property_SOURCE_DIR "/../../FFmpeg resources/fuzhou.mp4";
-	const char *filters_desc = "fps=15";
+	const char *src_name = "fuzhou.mp4";
+	const char *filters_desc = "drawtext=fontcolor=white"
+		":line_spacing=5"
+		":fontfile=simsun.ttc"
+		":text='白日依山尽、黄河入海流':fontsize=h/8:x=(w-text_w)/2:y=(h-text_h*2)";
 	if( argc > 1 ) {
 		src_name = argv[ 1 ];
 	}
@@ -334,27 +445,29 @@ int main( int argc, char **argv ) {
 	if( open_input_file( src_name ) < 0 ) { // 打开输入文件
 		return -1;
 	}
+	int filters_len = strlen( filters_desc );
+	// 如果中文字符采用GBK编码，就要把它转换为UTF-8编码
+	if( is_gbk( ( unsigned char * ) filters_desc, filters_len ) == 0 ) {
+		int dst_len = filters_len * 3 / 2;
+		char *dst_str = ( char * ) malloc( dst_len + 1 );
+		// 把字符串从GBK编码改为UTF-8编码
+		gbk_to_utf8( ( char * ) filters_desc, filters_len, dst_str, dst_len );
+		filters_desc = dst_str;
+	}
 	// 根据第一个滤镜名称构造输出文件的名称
 	const char *filter_name = get_filter_name( filters_desc );
 	char dest_name[ 64 ];
 	sprintf( dest_name, "output_%s.mp4", filter_name );
 	av_log( NULL, AV_LOG_INFO, "dest_name: %s\n", dest_name );
-	// 修改视频速率的话，要考虑音频速率是否也跟着变化。setpts表示调整视频播放速度
-	int is_setpts = ( strstr( filters_desc, "setpts=" ) != NULL );
-	int is_trim = ( strstr( filters_desc, "trim=" ) != NULL );
 	// 下面把过滤字符串中的特定串替换为相应数值
-	char total_frames[ 16 ]; // 总帧数
+	char total_frames[ 16 ];
 	sprintf( total_frames, "%lld", src_video->nb_frames );
 	// start_frame可以使用算术表达式
 	filters_desc = strrpl( ( char * ) filters_desc, "TOTAL_FRAMES", total_frames );
-	int interval = 2; // 淡出间隔
-	if( argc > 3 ) {
-		interval = atoi( argv[ 3 ] ); // 淡出间隔从命令行读取
-	}
-	char start_time[ 16 ]; // 开始淡出的时间点
-	sprintf( start_time, "%.2f", in_fmt_ctx->duration / 1000 / 1000.0 - interval );
+	char duration[ 16 ];
+	sprintf( duration, "%.2f", src_video->nb_frames / 1000 / 1000.0 );
 	// start_time不能使用算术表达式
-	filters_desc = strrpl( ( char * ) filters_desc, "START_TIME", start_time );
+	filters_desc = strrpl( ( char * ) filters_desc, "DURATION", duration );
 	init_filter( filters_desc ); // 初始化滤镜
 	if( open_output_file( dest_name ) < 0 ) { // 打开输出文件
 		return -1;
@@ -368,9 +481,8 @@ int main( int argc, char **argv ) {
 		if( packet->stream_index == video_index ) { // 视频包需要重新编码
 			packet->stream_index = 0;
 			recode_video( packet, frame, filt_frame ); // 对视频帧重新编码
-		} else if( packet->stream_index == audio_index && !is_setpts && !is_trim ) {
+		} else if( packet->stream_index == audio_index ) { // 音频包暂不重新编码，直接写入目标文件
 			packet->stream_index = 1;
-			// 音频包暂不重新编码，直接写入目标文件
 			ret = av_write_frame( out_fmt_ctx, packet ); // 往文件写入一个数据包
 			if( ret < 0 ) {
 				av_log( NULL, AV_LOG_ERROR, "write frame occur error %d.\n", ret );
@@ -392,9 +504,7 @@ int main( int argc, char **argv ) {
 	av_frame_free( &frame ); // 释放数据帧资源
 	av_packet_free( &packet ); // 释放数据包资源
 	avio_close( out_fmt_ctx->pb ); // 关闭输出流
-	//avcodec_close( video_decode_ctx ); // 关闭视频解码器的实例
 	avcodec_free_context( &video_decode_ctx ); // 释放视频解码器的实例
-	//avcodec_close( video_encode_ctx ); // 关闭视频编码器的实例
 	avcodec_free_context( &video_encode_ctx ); // 释放视频编码器的实例
 	avformat_free_context( out_fmt_ctx ); // 释放封装器的实例
 	avformat_close_input( &in_fmt_ctx ); // 关闭音视频文件

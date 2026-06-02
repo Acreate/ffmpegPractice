@@ -1,27 +1,17 @@
-﻿#include <cmake_include_to_c_cpp_header_env.h>
-#ifdef __cplusplus
+﻿#ifdef __cplusplus
 #define  EXTERN_C extern "C"
 #else
 #define  EXTERN_C
 #endif
+#define __STDC_CONSTANT_MACROS
 EXTERN_C {
 	#include <libavformat/avformat.h>
 	#include <libavcodec/avcodec.h>
 	#include <libavutil/avutil.h>
 	#include <libavutil/imgutils.h>
-	#include <libswresample/swresample.h>
-	#include <libswscale/swscale.h>
-	#include <libavformat/avformat.h>
-	#include <libavcodec/avcodec.h>
 	#include <libavfilter/avfilter.h>
 	#include <libavfilter/buffersink.h>
 	#include <libavfilter/buffersrc.h>
-	#include <libavutil/avutil.h>
-	#include <libavutil/opt.h>
-	#include <libavutil/pixdesc.h>
-}
-#define __STDC_CONSTANT_MACROS
-EXTERN_C {
 }
 
 AVFormatContext *in_fmt_ctx = NULL; // 输入文件的封装器实例
@@ -37,6 +27,34 @@ AVCodecContext *video_encode_ctx = NULL; // 视频编码器的实例
 AVFilterContext *buffersrc_ctx = NULL; // 输入滤镜的实例
 AVFilterContext *buffersink_ctx = NULL; // 输出滤镜的实例
 AVFilterGraph *filter_graph = NULL; // 滤镜图
+
+// 提取滤镜的名称
+char * get_filter_name( const char *filters_desc ) {
+	char *ptr = NULL;
+	int len_desc = strlen( filters_desc );
+	char *temp = new char [ len_desc + 1 ];
+	sprintf( temp, "%s", filters_desc );
+	char *value = strtok( temp, "=" );
+	av_log( NULL, AV_LOG_INFO, "find filter name: %s\n", value );
+	if( value ) {
+		size_t len = strlen( value ) + 1;
+		ptr = ( char * ) av_realloc( NULL, len );
+		if( ptr )
+			memcpy( ptr, value, len );
+	}
+	delete [] temp;
+	return ptr;
+}
+
+// 替换字符串中的特定字符串
+char * strrpl( char *s, const char *s1, const char *s2 ) {
+	char *ptr;
+	while( ptr = strstr( s, s1 ) ) { // 如果在s中找到s1
+		memmove( ptr + strlen( s2 ), ptr + strlen( s1 ), strlen( ptr ) - strlen( s1 ) + 1 );
+		memcpy( ptr, &s2[ 0 ], strlen( s2 ) );
+	}
+	return s;
+}
 
 // 打开输入文件
 int open_input_file( const char *src_name ) {
@@ -121,6 +139,7 @@ int open_output_file( const char *dest_name ) {
 		video_encode_ctx->gop_size = 12; // 关键帧的间隔距离
 		video_encode_ctx->width = av_buffersink_get_w( buffersink_ctx ); // 视频宽度
 		video_encode_ctx->height = av_buffersink_get_h( buffersink_ctx ); // 视频高度
+		//av_log(NULL, AV_LOG_INFO, "framerate.num=%d, framerate.den=%d\n", video_encode_ctx->framerate.num, video_encode_ctx->framerate.den);
 		// 视频的像素格式（颜色空间）
 		video_encode_ctx->pix_fmt = ( enum AVPixelFormat ) av_buffersink_get_format( buffersink_ctx );
 		//video_encode_ctx->max_b_frames = 0; // 0表示不要B帧
@@ -181,18 +200,17 @@ int init_filter( const char *filters_desc ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer source\n" );
 		return ret;
 	}
-	// 将二进制选项设置为整数列表，此处给输出滤镜的实例设置像素格式
-	AVDictionary *option = nullptr;
-	auto pixName = av_get_pix_fmt_name( AV_PIX_FMT_YUV420P );
-	ret = av_dict_set( &option, "pix_fmts", pixName, 0 );
+	auto fixName = av_get_pix_fmt_name( AV_PIX_FMT_YUV420P );
+	AVDictionary *options = NULL;
+	ret = av_dict_set( &options, "pix_fmts", fixName, 0 );
 	if( ret < 0 ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot set output pixel format\n" );
 		return ret;
 	}
 	// 创建输出滤镜的实例，并将其添加到现有的滤镜图
 	ret = avfilter_graph_create_filter( &buffersink_ctx, buffersink, "out",
-										NULL, &option, filter_graph );
-	av_dict_free( &option );
+										NULL, &options, filter_graph );
+	av_dict_free( &options );
 	if( ret < 0 ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer sink\n" );
 		return ret;
@@ -296,9 +314,8 @@ int recode_video( AVPacket *packet, AVFrame *frame, AVFrame *filt_frame ) {
 }
 
 int main( int argc, char **argv ) {
-	const char *src_name = cmake_property_SOURCE_DIR "/../../FFmpeg resources/fuzhou.mp4";
-	const char *dest_name = "output_film.mp4";
-	const char *filters_desc = "";
+	const char *src_name = "fuzhou.mp4";
+	const char *filters_desc = "fps=15";
 	if( argc > 1 ) {
 		src_name = argv[ 1 ];
 	}
@@ -308,29 +325,28 @@ int main( int argc, char **argv ) {
 	if( open_input_file( src_name ) < 0 ) { // 打开输入文件
 		return -1;
 	}
-	if( strlen( filters_desc ) <= 0 ) { // 构造老电影上下两侧的胶卷边框滤镜
-		int width = video_decode_ctx->width; // 视频的宽度
-		int add_height = 140; // 添加的高度
-		int side = 30; // 方块的边长
-		int gap = 20; // 两个方块之间的距离
-		int box_count = width / ( side + gap ); // 小方块的数量
-		size_t filmSize = ( box_count + 1 ) * 60 * 2;
-		char *film_desc = new char[ filmSize ]; // 老电影的过滤字符串
-		// 视频的上下两侧各往外侧延伸出一排黑边
-		snprintf( film_desc, filmSize, "pad=w=iw:h=ih+%d:x=0:y=%d:color=black", add_height, add_height / 2 );
-		int i = 0;
-		while( i <= box_count ) { // 往上下两侧新增的黑边添加白色小方块
-			int x_pos = gap + i * ( side + gap );
-			int x_side = x_pos + side > width ? width - x_pos : side;
-			snprintf( film_desc, filmSize, "%s,drawbox=x=%d:y=%d:w=%d:h=%d:color=white:t=fill", film_desc, x_pos, gap, side, side );
-			snprintf( film_desc, filmSize, "%s,drawbox=x=%d:y=ih-%d:w=%d:h=%d:color=white:t=fill", film_desc, x_pos, side + gap, side, side );
-			i++;
-		}
-		init_filter( film_desc ); // 初始化滤镜
-		delete[] film_desc;
-	} else {
-		init_filter( filters_desc ); // 初始化滤镜
+	// 根据第一个滤镜名称构造输出文件的名称
+	const char *filter_name = get_filter_name( filters_desc );
+	char dest_name[ 64 ];
+	sprintf( dest_name, "output_%s.mp4", filter_name );
+	av_log( NULL, AV_LOG_INFO, "dest_name: %s\n", dest_name );
+	// 修改视频速率的话，要考虑音频速率是否也跟着变化。setpts表示调整视频播放速度
+	int is_setpts = ( strstr( filters_desc, "setpts=" ) != NULL );
+	int is_trim = ( strstr( filters_desc, "trim=" ) != NULL );
+	// 下面把过滤字符串中的特定串替换为相应数值
+	char total_frames[ 16 ]; // 总帧数
+	sprintf( total_frames, "%lld", src_video->nb_frames );
+	// start_frame可以使用算术表达式
+	filters_desc = strrpl( ( char * ) filters_desc, "TOTAL_FRAMES", total_frames );
+	int interval = 2; // 淡出间隔
+	if( argc > 3 ) {
+		interval = atoi( argv[ 3 ] ); // 淡出间隔从命令行读取
 	}
+	char start_time[ 16 ]; // 开始淡出的时间点
+	sprintf( start_time, "%.2f", in_fmt_ctx->duration / 1000 / 1000.0 - interval );
+	// start_time不能使用算术表达式
+	filters_desc = strrpl( ( char * ) filters_desc, "START_TIME", start_time );
+	init_filter( filters_desc ); // 初始化滤镜
 	if( open_output_file( dest_name ) < 0 ) { // 打开输出文件
 		return -1;
 	}
@@ -343,8 +359,9 @@ int main( int argc, char **argv ) {
 		if( packet->stream_index == video_index ) { // 视频包需要重新编码
 			packet->stream_index = 0;
 			recode_video( packet, frame, filt_frame ); // 对视频帧重新编码
-		} else if( packet->stream_index == audio_index ) { // 音频包暂不重新编码，直接写入目标文件
+		} else if( packet->stream_index == audio_index && !is_setpts && !is_trim ) {
 			packet->stream_index = 1;
+			// 音频包暂不重新编码，直接写入目标文件
 			ret = av_write_frame( out_fmt_ctx, packet ); // 往文件写入一个数据包
 			if( ret < 0 ) {
 				av_log( NULL, AV_LOG_ERROR, "write frame occur error %d.\n", ret );
@@ -358,7 +375,7 @@ int main( int argc, char **argv ) {
 	recode_video( packet, frame, filt_frame ); // 对视频帧重新编码
 	output_video( NULL ); // 传入一个空帧，冲走编码缓存
 	av_write_trailer( out_fmt_ctx ); // 写文件尾
-	av_log( NULL, AV_LOG_INFO, "Success process film file.\n" );
+	av_log( NULL, AV_LOG_INFO, "Success process video file.\n" );
 
 	avfilter_free( buffersrc_ctx ); // 释放输入滤镜的实例
 	avfilter_free( buffersink_ctx ); // 释放输出滤镜的实例
@@ -366,9 +383,7 @@ int main( int argc, char **argv ) {
 	av_frame_free( &frame ); // 释放数据帧资源
 	av_packet_free( &packet ); // 释放数据包资源
 	avio_close( out_fmt_ctx->pb ); // 关闭输出流
-	//avcodec_close( video_decode_ctx ); // 关闭视频解码器的实例
 	avcodec_free_context( &video_decode_ctx ); // 释放视频解码器的实例
-	//avcodec_close( video_encode_ctx ); // 关闭视频编码器的实例
 	avcodec_free_context( &video_encode_ctx ); // 释放视频编码器的实例
 	avformat_free_context( out_fmt_ctx ); // 释放封装器的实例
 	avformat_close_input( &in_fmt_ctx ); // 关闭音视频文件
