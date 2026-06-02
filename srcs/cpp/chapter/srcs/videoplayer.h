@@ -4,9 +4,8 @@
 #include <list>
 #include <SDL.h>
 
-#include "util//VideoFrame.h"
+#include "util/VideoFrame.h"
 #include "util/videocallback.h"
-
 
 class VideoPlayer {
 public:

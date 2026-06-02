@@ -19,8 +19,9 @@ MainWindow::MainWindow( QWidget *parent )
 	, ui( new Ui::MainWindow ) {
 	ui->setupUi( this );
 	FunctionTransfer::init( QThread::currentThreadId( ) );
+	auto centralWidget = this->centralWidget( );
 	// 创建一个垂直布局
-	QVBoxLayout *vBox = new QVBoxLayout( this->centralWidget( ) );
+	QVBoxLayout *vBox = new QVBoxLayout( centralWidget );
 	vBox->setAlignment( Qt::AlignTop ); // 设置顶部对齐
 	QPushButton *btn_choose = new QPushButton( ); // 创建按钮控件
 	btn_choose->setText( "打开音视频文件" );
@@ -30,7 +31,7 @@ MainWindow::MainWindow( QWidget *parent )
 	label->setMaximumHeight( 50 ); // 设置最大高度
 	vBox->addWidget( label ); // 给布局添加标签控件
 	// 创建一个水平布局
-	QHBoxLayout *hBox = new QHBoxLayout( this->centralWidget( ) );
+	QHBoxLayout *hBox = new QHBoxLayout( );
 	// 注册按钮控件的单击事件。输入参数依次为：按钮，事件类型，回调方法
 	connect( btn_choose, &QPushButton::clicked, [=]( ) {
 		// 对话框的输入参数依次为：上级窗口，对话框标题，默认目录，文件过滤器
