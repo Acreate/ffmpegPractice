@@ -11,7 +11,6 @@ EXTERN_C {
 	#include <libavutil/imgutils.h>
 	#include <libswresample/swresample.h>
 }
-#include <cmake_include_to_c_cpp_header_env.h>
 
 AVFormatContext *in_fmt_ctx = NULL; // 输入文件的封装器实例
 AVCodecContext *audio_decode_ctx = NULL; // 音频解码器的实例
@@ -154,7 +153,7 @@ int decode_audio( AVPacket *packet, AVFrame *frame, FILE *fp_out, SwrContext *sw
 	return ret;
 }
 int main( int argc, char **argv ) {
-	const char *src_name = cmake_property_SOURCE_DIR "/../../FFmpeg resources/fuzhou.mp4";
+	const char *src_name = "fuzhou.mp4";
 	if( argc > 1 ) {
 		src_name = argv[ 1 ];
 	}
@@ -253,9 +252,7 @@ int main( int argc, char **argv ) {
 	av_frame_free( &frame ); // 释放数据帧资源
 	av_packet_free( &packet ); // 释放数据包资源
 	swr_free( &swr_ctx ); // 释放音频采样器的实例
-	//avcodec_close( audio_decode_ctx ); // 关闭音频解码器的实例
 	avcodec_free_context( &audio_decode_ctx ); // 释放音频解码器的实例
-	//avcodec_close( audio_encode_ctx ); // 关闭音频编码器的实例
 	avcodec_free_context( &audio_encode_ctx ); // 释放音频编码器的实例
 	avformat_close_input( &in_fmt_ctx ); // 关闭音视频文件
 	return 0;

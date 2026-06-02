@@ -9,9 +9,7 @@ EXTERN_C {
 	#include <libavcodec/avcodec.h>
 	#include <libavutil/avutil.h>
 	#include <libavutil/imgutils.h>
-	#include <libavutil/des.h>
 }
-#include <cmake_include_to_c_cpp_header_env.h>
 
 AVCodecContext *audio_encode_ctx = NULL; // AAC编码器的实例
 
@@ -134,8 +132,7 @@ int save_aac_file( FILE *fp_out, AVFrame *frame ) {
 }
 
 int main( int argc, char **argv ) {
-	//const char *src_name = cmake_property_SOURCE_DIR "/../../FFmpeg resources/2018.mp4";
-	const char *src_name = cmake_property_SOURCE_DIR "/../../FFmpeg resources/output_savepcm.pcm";
+	const char *src_name = "output_savepcm.pcm";
 	int nb_channels = 2; // 声道数量
 	if( argc > 1 ) {
 		src_name = argv[ 1 ];
@@ -213,7 +210,6 @@ int main( int argc, char **argv ) {
 	fclose( fp_out ); // 关闭输出文件
 	fclose( fp_in ); // 关闭输入文件
 	av_frame_free( &frame ); // 释放数据帧资源
-	//avcodec_close( audio_encode_ctx ); // 关闭音频编码器的实例
 	avcodec_free_context( &audio_encode_ctx ); // 释放音频编码器的实例
 	return 0;
 }

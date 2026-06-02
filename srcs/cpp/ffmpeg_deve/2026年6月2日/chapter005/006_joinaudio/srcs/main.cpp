@@ -11,7 +11,6 @@ EXTERN_C {
 	#include <libavutil/imgutils.h>
 	#include <libswresample/swresample.h>
 }
-#include <cmake_include_to_c_cpp_header_env.h>
 
 AVFormatContext *in_fmt_ctx[ 2 ] = { NULL, NULL }; // 输入文件的封装器实例
 AVCodecContext *audio_decode_ctx[ 2 ] = { NULL, NULL }; // 音频解码器的实例
@@ -188,8 +187,8 @@ int decode_audio( int seq, AVPacket *packet, AVFrame *frame, FILE *fp_out ) {
 }
 
 int main( int argc, char **argv ) {
-	const char *src_name0 = cmake_property_SOURCE_DIR "/../../FFmpeg resources/2018.mp3";
-	const char *src_name1 = cmake_property_SOURCE_DIR "/../../FFmpeg resources/plum.mp3";
+	const char *src_name0 = "2018.mp3";
+	const char *src_name1 = "plum.mp3";
 	const char *dest_name = "output_joinaudio.mp3";
 	if( argc > 1 ) {
 		src_name0 = argv[ 1 ];
@@ -249,11 +248,8 @@ int main( int argc, char **argv ) {
 	av_packet_free( &packet ); // 释放数据包资源
 	swr_free( &swr_ctx[ 0 ] ); // 释放音频采样器的实例
 	swr_free( &swr_ctx[ 1 ] ); // 释放音频采样器的实例
-	//avcodec_close( audio_decode_ctx[ 0 ] ); // 关闭音频解码器的实例
 	avcodec_free_context( &audio_decode_ctx[ 0 ] ); // 释放音频解码器的实例
-	//avcodec_close( audio_decode_ctx[ 1 ] ); // 关闭音频解码器的实例
 	avcodec_free_context( &audio_decode_ctx[ 1 ] ); // 释放音频解码器的实例
-	//avcodec_close( audio_encode_ctx ); // 关闭音频编码器的实例
 	avcodec_free_context( &audio_encode_ctx ); // 释放音频编码器的实例
 	avformat_close_input( &in_fmt_ctx[ 0 ] ); // 关闭音视频文件
 	avformat_close_input( &in_fmt_ctx[ 1 ] ); // 关闭音视频文件

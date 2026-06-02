@@ -10,10 +10,9 @@ EXTERN_C {
 	#include <libavutil/avutil.h>
 	#include <libavutil/imgutils.h>
 }
-#include <cmake_include_to_c_cpp_header_env.h>
 
 int main( int argc, char **argv ) {
-	const char *src_name = cmake_property_SOURCE_DIR "/../../FFmpeg resources/fuzhou.mp4";
+	const char *src_name = "fuzhou.mp4";
 	if( argc > 1 ) {
 		src_name = argv[ 1 ];
 	}
@@ -120,7 +119,6 @@ int main( int argc, char **argv ) {
 
 	av_frame_free( &frame ); // 释放数据帧资源
 	av_packet_free( &packet ); // 释放数据包资源
-	//avcodec_close(audio_decode_ctx); // 关闭音频解码器的实例
 	avcodec_free_context( &audio_decode_ctx ); // 释放音频解码器的实例
 	avformat_close_input( &in_fmt_ctx ); // 关闭音视频文件
 	return 0;
