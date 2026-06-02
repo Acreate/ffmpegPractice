@@ -13,7 +13,7 @@ EXTERN_C {
 	#include <libavfilter/buffersrc.h>
 	#include <libavutil/pixdesc.h>
 }
-
+#include <string>
 AVFormatContext *in_fmt_ctx[ 2 ] = { NULL, NULL }; // 输入文件的封装器实例
 AVCodecContext *video_decode_ctx[ 2 ] = { NULL, NULL }; // 视频解码器的实例
 int video_index[ 2 ] = { -1, -1 }; // 视频流的索引
@@ -198,7 +198,6 @@ int init_filter( const char *filters_desc ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot set output pixel format\n" );
 		return ret;
 	}
-
 	// 创建输出滤镜的实例，并将其添加到现有的滤镜图
 	ret = avfilter_graph_create_filter( &buffersink_ctx, buffersink, "out",
 										NULL, &option, filter_graph );
@@ -296,7 +295,6 @@ int get_frame( AVFormatContext *fmt_ctx, AVCodecContext *decode_ctx, int index, 
 
 // 对视频帧重新编码
 int recode_video( AVPacket **packet, AVFrame **frame, AVFrame *filt_frame ) {
-	int second_end = -1;
 	// 把未解压的数据包发给解码器实例
 	int ret = avcodec_send_packet( video_decode_ctx[ 0 ], packet[ 0 ] );
 	if( ret < 0 ) {
@@ -326,14 +324,12 @@ int recode_video( AVPacket **packet, AVFrame **frame, AVFrame *filt_frame ) {
 				av_log( NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n" );
 				return ret;
 			}
-			second_end = -1;
 		} else { // 第二个文件已到末尾，就把空白帧添加到输入滤镜的缓冲区
 			ret = av_buffersrc_add_frame_flags( buffersrc_ctx[ 1 ], NULL, AV_BUFFERSRC_FLAG_KEEP_REF );
 			if( ret < 0 ) {
 				av_log( NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n" );
 				return ret;
 			}
-			second_end = 1;
 		}
 		while( 1 ) {
 			// 从输出滤镜的接收器获取一个已加工的过滤帧
@@ -344,12 +340,7 @@ int recode_video( AVPacket **packet, AVFrame **frame, AVFrame *filt_frame ) {
 				av_log( NULL, AV_LOG_ERROR, "get buffersink frame occur error %d.\n", ret );
 				return ret;
 			}
-			if( second_end != 1 ) { // 第二个文件没到末尾
-				output_video( filt_frame ); // 给视频帧编码，并写入压缩后的视频包
-			} else { // 第二个文件已到末尾，就写入第一个文件的视频
-				frame[ 0 ]->pts = filt_frame->pts; // 调整第一个视频来源的时间戳
-				output_video( frame[ 0 ] ); // 给视频帧编码，并写入压缩后的视频包
-			}
+			output_video( filt_frame ); // 给视频帧编码，并写入压缩后的视频包
 		}
 	}
 	return ret;
@@ -386,8 +377,7 @@ int recode_video2( AVPacket **packet, AVFrame **frame, AVFrame *filt_frame ) {
 					av_log( NULL, AV_LOG_ERROR, "get buffersink frame occur error %d.\n", ret );
 					break;
 				}
-				frame[ 1 ]->pts = filt_frame->pts; // 调整第二个视频来源的时间戳
-				output_video( frame[ 1 ] ); // 给视频帧编码，并写入压缩后的视频包
+				output_video( filt_frame ); // 给视频帧编码，并写入压缩后的视频包
 			}
 		} else {
 			av_log( NULL, AV_LOG_ERROR, "Error while feeding the NULL filtergraph\n" );
@@ -398,11 +388,25 @@ int recode_video2( AVPacket **packet, AVFrame **frame, AVFrame *filt_frame ) {
 }
 
 int main( int argc, char **argv ) {
-	const char *src_name0 = "fuzhous.mp4";
-	const char *src_name1 = "seas.mp4";
-	const char *dest_name = "output_blendvideo.mp4";
-	const char *filters_desc = "[0:v]fps=25[v0];[1:v]fps=25[v1];[v0][v1]blend=all_mode=average";
-
+	const char *src_name0 = "fuzhou.mp4";
+	const char *src_name1 = "sea.mp4";
+	const char *dest_name = "output_mixvideo.mp4";
+	std::string filters_desc_arg;
+	filters_desc_arg.append( "[1:v]" );
+	filters_desc_arg.append( "scale=w=iw/3" );
+	filters_desc_arg.append( ":h=ih/3" );
+	filters_desc_arg.append( "[v1]" );
+	filters_desc_arg.append( ";" );
+	filters_desc_arg.append( "[0:v]" );
+	filters_desc_arg.append( "[v1]" );
+	filters_desc_arg.append( "overlay=x=0:y=0" );
+	const char *filters_desc = filters_desc_arg.c_str( );
+	if( argc > 1 ) {
+		src_name0 = argv[ 1 ];
+	}
+	if( argc > 2 ) {
+		src_name1 = argv[ 2 ];
+	}
 	if( argc > 3 ) {
 		filters_desc = argv[ 3 ]; // 过滤字符串从命令行读取
 	}
@@ -446,6 +450,7 @@ int main( int argc, char **argv ) {
 	// 第二个文件还没完的话，就在末尾补上第二个文件的视频
 	while( av_read_frame( in_fmt_ctx[ 1 ], packet[ 1 ] ) >= 0 ) { // 轮询数据包
 		if( packet[ 1 ]->stream_index == video_index[ 1 ] ) { // 视频包需要重新编码
+			packet[ 1 ]->stream_index = 0;
 			recode_video2( packet, frame, filt_frame ); // 对视频帧重新编码
 			second_flag = 1;
 		}
@@ -458,7 +463,7 @@ int main( int argc, char **argv ) {
 	}
 	output_video( NULL ); // 传入一个空帧，冲走编码缓存
 	av_write_trailer( out_fmt_ctx ); // 写文件尾
-	av_log( NULL, AV_LOG_INFO, "Success blend video file.\n" );
+	av_log( NULL, AV_LOG_INFO, "Success mix video file.\n" );
 
 	avfilter_free( buffersrc_ctx[ 0 ] ); // 释放输入滤镜的实例
 	avfilter_free( buffersrc_ctx[ 1 ] ); // 释放输入滤镜的实例

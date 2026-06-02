@@ -13,20 +13,23 @@ EXTERN_C {
 	#include <libavfilter/buffersrc.h>
 	#include <libavutil/pixdesc.h>
 }
+#include <string>
 
-AVFormatContext *in_fmt_ctx[ 2 ] = { NULL, NULL }; // 输入文件的封装器实例
-AVCodecContext *video_decode_ctx[ 2 ] = { NULL, NULL }; // 视频解码器的实例
-int video_index[ 2 ] = { -1, -1 }; // 视频流的索引
+#define ARRAY_LEN 4
+AVFormatContext *in_fmt_ctx[ ARRAY_LEN ]; // 输入文件的封装器实例
+AVCodecContext *video_decode_ctx[ ARRAY_LEN ]; // 视频解码器的实例
+int video_index[ ARRAY_LEN ]; // 视频流的索引
 int audio_index = -1; // 音频流的索引
-AVStream *src_video[ 2 ] = { NULL, NULL }; // 源文件的视频流
+AVStream *src_video[ ARRAY_LEN ]; // 源文件的视频流
 AVStream *src_audio = NULL; // 源文件的音频流
 AVStream *dest_video = NULL; // 目标文件的视频流
 AVFormatContext *out_fmt_ctx; // 输出文件的封装器实例
 AVCodecContext *video_encode_ctx = NULL; // 视频编码器的实例
 
-AVFilterContext *buffersrc_ctx[ 2 ] = { NULL, NULL }; // 输入滤镜的实例
+AVFilterContext *buffersrc_ctx[ ARRAY_LEN ]; // 输入滤镜的实例
 AVFilterContext *buffersink_ctx = NULL; // 输出滤镜的实例
 AVFilterGraph *filter_graph = NULL; // 滤镜图
+int i = -1; // 数组下标
 
 // 打开输入文件
 int open_input_file( int seq, const char *src_name ) {
@@ -148,57 +151,53 @@ int open_output_file( const char *dest_name ) {
 int init_filter( const char *filters_desc ) {
 	av_log( NULL, AV_LOG_INFO, "filters_desc : %s\n", filters_desc );
 	int ret = 0;
-	const AVFilter *buffersrc[ 2 ];
-	buffersrc[ 0 ] = avfilter_get_by_name( "buffer" ); // 获取第一个输入滤镜
-	buffersrc[ 1 ] = avfilter_get_by_name( "buffer" ); // 获取第二个输入滤镜
 	const AVFilter *buffersink = avfilter_get_by_name( "buffersink" ); // 获取输出滤镜
 	AVFilterInOut *inputs = avfilter_inout_alloc( ); // 分配滤镜的输入输出参数
-	AVFilterInOut *outputs[ 2 ];
-	outputs[ 0 ] = avfilter_inout_alloc( ); // 分配第一个滤镜的输入输出参数
-	outputs[ 1 ] = avfilter_inout_alloc( ); // 分配第二个滤镜的输入输出参数
 	enum AVPixelFormat pix_fmts[ ] = { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE };
 	filter_graph = avfilter_graph_alloc( ); // 分配一个滤镜图
-	if( !inputs || !outputs[ 0 ] || !outputs[ 1 ] || !filter_graph ) {
+	if( !inputs || !filter_graph ) {
 		ret = AVERROR( ENOMEM );
 		return ret;
 	}
-	char args0[ 512 ]; // 临时字符串，存放输入源的媒体参数信息，比如视频的宽高、像素格式等
-	snprintf( args0, sizeof( args0 ),
-			"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-			video_decode_ctx[ 0 ]->width, video_decode_ctx[ 0 ]->height, video_decode_ctx[ 0 ]->pix_fmt,
-			src_video[ 0 ]->time_base.num, src_video[ 0 ]->time_base.den,
-			video_decode_ctx[ 0 ]->sample_aspect_ratio.num, video_decode_ctx[ 0 ]->sample_aspect_ratio.den );
-	av_log( NULL, AV_LOG_INFO, "args0 = %s\n", args0 );
-	// 创建输入滤镜的实例，并将其添加到现有的滤镜图
-	ret = avfilter_graph_create_filter( &buffersrc_ctx[ 0 ], buffersrc[ 0 ], "in0",
-										args0, NULL, filter_graph );
-	if( ret < 0 ) {
-		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer0 source\n" );
-		return ret;
+	const AVFilter *buffersrc[ ARRAY_LEN ];
+	AVFilterInOut *outputs[ ARRAY_LEN ];
+	char args[ 512 ]; // 临时字符串，存放输入源的媒体参数信息，比如视频的宽高、像素格式等
+	i = -1;
+	while( ++i < ARRAY_LEN ) {
+		buffersrc[ i ] = avfilter_get_by_name( "buffer" ); // 获取第一个输入滤镜
+		outputs[ i ] = avfilter_inout_alloc( ); // 分配第一个滤镜的输入输出参数
+		snprintf( args, sizeof( args ),
+				"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+				video_decode_ctx[ i ]->width, video_decode_ctx[ i ]->height, video_decode_ctx[ i ]->pix_fmt,
+				src_video[ i ]->time_base.num, src_video[ i ]->time_base.den,
+				video_decode_ctx[ i ]->sample_aspect_ratio.num, video_decode_ctx[ i ]->sample_aspect_ratio.den );
+		av_log( NULL, AV_LOG_INFO, "args : %s\n", args );
+		// 创建输入滤镜的实例，并将其添加到现有的滤镜图
+		ret = avfilter_graph_create_filter( &buffersrc_ctx[ i ], buffersrc[ i ], "in",
+											args, NULL, filter_graph );
+		if( ret < 0 ) {
+			av_log( NULL, AV_LOG_ERROR, "Cannot create buffer source\n" );
+			return ret;
+		}
+		char put_name[ 8 ];
+		snprintf( put_name, sizeof( put_name ), "%d:v", i );
+		// 设置滤镜的输入输出参数
+		outputs[ i ]->name = av_strdup( put_name ); // 第i路视频流
+		outputs[ i ]->filter_ctx = buffersrc_ctx[ i ];
+		outputs[ i ]->pad_idx = 0;
+		outputs[ i ]->next = NULL;
+		if( i > 0 ) {
+			outputs[ i - 1 ]->next = outputs[ i ]; // 指向下一个输入输出参数
+		}
 	}
-	char args1[ 512 ]; // 临时字符串，存放输入源的媒体参数信息，比如视频的宽高、像素格式等
-	snprintf( args1, sizeof( args1 ),
-			"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-			video_decode_ctx[ 1 ]->width, video_decode_ctx[ 1 ]->height, video_decode_ctx[ 1 ]->pix_fmt,
-			src_video[ 1 ]->time_base.num, src_video[ 1 ]->time_base.den,
-			video_decode_ctx[ 1 ]->sample_aspect_ratio.num, video_decode_ctx[ 1 ]->sample_aspect_ratio.den );
-	av_log( NULL, AV_LOG_INFO, "args1 = %s\n", args1 );
-	// 创建输入滤镜的实例，并将其添加到现有的滤镜图
-	ret = avfilter_graph_create_filter( &buffersrc_ctx[ 1 ], buffersrc[ 1 ], "in1",
-										args1, NULL, filter_graph );
-	if( ret < 0 ) {
-		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer1 source\n" );
-		return ret;
-	}
-
 	// 将二进制选项设置为整数列表，此处给输出滤镜的实例设置像素格式
+
 	AVDictionary *option = nullptr;
 	ret = av_dict_set( &option, "pix_fmts", av_get_pix_fmt_name( AV_PIX_FMT_YUV420P ), 0 );
 	if( ret < 0 ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot set output pixel format\n" );
 		return ret;
 	}
-
 	// 创建输出滤镜的实例，并将其添加到现有的滤镜图
 	ret = avfilter_graph_create_filter( &buffersink_ctx, buffersink, "out",
 										NULL, &option, filter_graph );
@@ -207,21 +206,12 @@ int init_filter( const char *filters_desc ) {
 		av_log( NULL, AV_LOG_ERROR, "Cannot create buffer sink\n" );
 		return ret;
 	}
-
-	// 设置滤镜的输入输出参数
-	outputs[ 0 ]->name = av_strdup( "0:v" ); // 第一路视频流
-	outputs[ 0 ]->filter_ctx = buffersrc_ctx[ 0 ];
-	outputs[ 0 ]->pad_idx = 0;
-	outputs[ 0 ]->next = outputs[ 1 ]; // 注意这里要指向下一个输入输出参数
-	outputs[ 1 ]->name = av_strdup( "1:v" ); // 第二路视频流
-	outputs[ 1 ]->filter_ctx = buffersrc_ctx[ 1 ];
-	outputs[ 1 ]->pad_idx = 0;
-	outputs[ 1 ]->next = NULL;
 	// 设置滤镜的输入输出参数
 	inputs->name = av_strdup( "out" );
 	inputs->filter_ctx = buffersink_ctx;
 	inputs->pad_idx = 0;
 	inputs->next = NULL;
+
 	// 把采用过滤字符串描述的图形添加到滤镜图（引脚的输出和输入与滤镜容器的相反）
 	ret = avfilter_graph_parse_ptr( filter_graph, filters_desc, &inputs, outputs, NULL );
 	if( ret < 0 ) {
@@ -296,7 +286,6 @@ int get_frame( AVFormatContext *fmt_ctx, AVCodecContext *decode_ctx, int index, 
 
 // 对视频帧重新编码
 int recode_video( AVPacket **packet, AVFrame **frame, AVFrame *filt_frame ) {
-	int second_end = -1;
 	// 把未解压的数据包发给解码器实例
 	int ret = avcodec_send_packet( video_decode_ctx[ 0 ], packet[ 0 ] );
 	if( ret < 0 ) {
@@ -318,22 +307,23 @@ int recode_video( AVPacket **packet, AVFrame **frame, AVFrame *filt_frame ) {
 			av_log( NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n" );
 			return ret;
 		}
-		// 从指定的输入文件获取一个数据帧
-		ret = get_frame( in_fmt_ctx[ 1 ], video_decode_ctx[ 1 ], video_index[ 1 ], packet[ 1 ], frame[ 1 ] );
-		if( ret == 0 ) { // 第二个文件没到末尾，就把数据帧添加到输入滤镜的缓冲区
-			ret = av_buffersrc_add_frame_flags( buffersrc_ctx[ 1 ], frame[ 1 ], AV_BUFFERSRC_FLAG_KEEP_REF );
-			if( ret < 0 ) {
-				av_log( NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n" );
-				return ret;
+		i = 0;
+		while( ++i < ARRAY_LEN ) {
+			// 从指定的输入文件获取一个数据帧
+			ret = get_frame( in_fmt_ctx[ i ], video_decode_ctx[ i ], video_index[ i ], packet[ i ], frame[ i ] );
+			if( ret == 0 ) { // 后面的文件没到末尾，就把数据帧添加到输入滤镜的缓冲区
+				ret = av_buffersrc_add_frame_flags( buffersrc_ctx[ i ], frame[ i ], AV_BUFFERSRC_FLAG_KEEP_REF );
+				if( ret < 0 ) {
+					av_log( NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n" );
+					return ret;
+				}
+			} else { // 后面的文件已到末尾，就把空白帧添加到输入滤镜的缓冲区
+				ret = av_buffersrc_add_frame_flags( buffersrc_ctx[ i ], NULL, AV_BUFFERSRC_FLAG_KEEP_REF );
+				if( ret < 0 ) {
+					av_log( NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n" );
+					return ret;
+				}
 			}
-			second_end = -1;
-		} else { // 第二个文件已到末尾，就把空白帧添加到输入滤镜的缓冲区
-			ret = av_buffersrc_add_frame_flags( buffersrc_ctx[ 1 ], NULL, AV_BUFFERSRC_FLAG_KEEP_REF );
-			if( ret < 0 ) {
-				av_log( NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n" );
-				return ret;
-			}
-			second_end = 1;
 		}
 		while( 1 ) {
 			// 从输出滤镜的接收器获取一个已加工的过滤帧
@@ -344,73 +334,37 @@ int recode_video( AVPacket **packet, AVFrame **frame, AVFrame *filt_frame ) {
 				av_log( NULL, AV_LOG_ERROR, "get buffersink frame occur error %d.\n", ret );
 				return ret;
 			}
-			if( second_end != 1 ) { // 第二个文件没到末尾
-				output_video( filt_frame ); // 给视频帧编码，并写入压缩后的视频包
-			} else { // 第二个文件已到末尾，就写入第一个文件的视频
-				frame[ 0 ]->pts = filt_frame->pts; // 调整第一个视频来源的时间戳
-				output_video( frame[ 0 ] ); // 给视频帧编码，并写入压缩后的视频包
-			}
-		}
-	}
-	return ret;
-}
-
-// 对视频帧重新编码（第二个视频的剩余部分）
-int recode_video2( AVPacket **packet, AVFrame **frame, AVFrame *filt_frame ) {
-	// 把未解压的数据包发给解码器实例
-	int ret = avcodec_send_packet( video_decode_ctx[ 1 ], packet[ 1 ] );
-	if( ret < 0 ) {
-		av_log( NULL, AV_LOG_ERROR, "send packet occur error %d.\n", ret );
-		return ret;
-	}
-	while( 1 ) {
-		// 从解码器实例获取还原后的数据帧
-		ret = avcodec_receive_frame( video_decode_ctx[ 1 ], frame[ 1 ] );
-		if( ret == AVERROR( EAGAIN ) || ret == AVERROR_EOF ) {
-			return ( ret == AVERROR( EAGAIN ) ) ? 0 : 1;
-		} else if( ret < 0 ) {
-			av_log( NULL, AV_LOG_ERROR, "decode frame occur error %d.\n", ret );
-			return ret;
-		}
-		// 第一个文件已经读完，就把空白帧添加到输入滤镜的缓冲区
-		ret = av_buffersrc_add_frame_flags( buffersrc_ctx[ 0 ], NULL, AV_BUFFERSRC_FLAG_KEEP_REF );
-		// 第二个文件还没读完，就把数据帧添加到输入滤镜的缓冲区
-		ret = av_buffersrc_add_frame_flags( buffersrc_ctx[ 1 ], frame[ 1 ], AV_BUFFERSRC_FLAG_KEEP_REF );
-		if( ret == 0 ) {
-			while( 1 ) {
-				// 从输出滤镜的接收器获取一个已加工的过滤帧
-				ret = av_buffersink_get_frame( buffersink_ctx, filt_frame );
-				if( ret == AVERROR( EAGAIN ) || ret == AVERROR_EOF ) {
-					break;
-				} else if( ret < 0 ) {
-					av_log( NULL, AV_LOG_ERROR, "get buffersink frame occur error %d.\n", ret );
-					break;
-				}
-				frame[ 1 ]->pts = filt_frame->pts; // 调整第二个视频来源的时间戳
-				output_video( frame[ 1 ] ); // 给视频帧编码，并写入压缩后的视频包
-			}
-		} else {
-			av_log( NULL, AV_LOG_ERROR, "Error while feeding the NULL filtergraph\n" );
-			break;
+			output_video( filt_frame ); // 给视频帧编码，并写入压缩后的视频包
 		}
 	}
 	return ret;
 }
 
 int main( int argc, char **argv ) {
-	const char *src_name0 = "fuzhous.mp4";
-	const char *src_name1 = "seas.mp4";
-	const char *dest_name = "output_blendvideo.mp4";
-	const char *filters_desc = "[0:v]fps=25[v0];[1:v]fps=25[v1];[v0][v1]blend=all_mode=average";
-
-	if( argc > 3 ) {
-		filters_desc = argv[ 3 ]; // 过滤字符串从命令行读取
-	}
-	if( open_input_file( 0, src_name0 ) < 0 ) { // 打开第一个输入文件
-		return -1;
-	}
-	if( open_input_file( 1, src_name1 ) < 0 ) { // 打开第二个输入文件
-		return -1;
+	const char *src_name[ ARRAY_LEN ] = { "fuzhous.mp4", "seas.mp4", "seas.mp4", "fuzhous.mp4" };
+	const char *dest_name = "output_mixgrid.mp4";
+	int width, height;
+	std::string filters_desc_arg;
+	filters_desc_arg.append( "[0:v]" );
+	filters_desc_arg.append( "pad=width=iw*2" );
+	filters_desc_arg.append( ":height=ih*2" );
+	filters_desc_arg.append( "[a]" );
+	filters_desc_arg.append( ";[a][1:v]" );
+	filters_desc_arg.append( "overlay=x=w" );
+	filters_desc_arg.append( "[b]" );
+	filters_desc_arg.append( ";[b][2:v]" );
+	filters_desc_arg.append( "overlay=x=0" );
+	filters_desc_arg.append( ":y=h" );
+	filters_desc_arg.append( "[c]" );
+	filters_desc_arg.append( ";[c][3:v]" );
+	filters_desc_arg.append( "overlay=x=w" );
+	filters_desc_arg.append( ":y=h" );
+	const char *filters_desc = filters_desc_arg.c_str( );
+	i = -1;
+	while( ++i < ARRAY_LEN ) {
+		if( open_input_file( i, src_name[ i ] ) < 0 ) { // 打开第i+1个输入文件
+			return -1;
+		}
 	}
 	init_filter( filters_desc ); // 初始化滤镜
 	if( open_output_file( dest_name ) < 0 ) { // 打开输出文件
@@ -418,12 +372,13 @@ int main( int argc, char **argv ) {
 	}
 
 	int ret = -1;
-	AVPacket *packet[ 2 ];
-	packet[ 0 ] = av_packet_alloc( ); // 分配一个数据包
-	packet[ 1 ] = av_packet_alloc( ); // 分配一个数据包
-	AVFrame *frame[ 2 ];
-	frame[ 0 ] = av_frame_alloc( ); // 分配一个数据帧
-	frame[ 1 ] = av_frame_alloc( ); // 分配一个数据帧
+	AVPacket *packet[ ARRAY_LEN ];
+	AVFrame *frame[ ARRAY_LEN ];
+	i = -1;
+	while( ++i < ARRAY_LEN ) {
+		packet[ i ] = av_packet_alloc( ); // 分配一个数据包
+		frame[ i ] = av_frame_alloc( ); // 分配一个数据帧
+	}
 	AVFrame *filt_frame = av_frame_alloc( ); // 分配一个过滤后的数据帧
 	while( av_read_frame( in_fmt_ctx[ 0 ], packet[ 0 ] ) >= 0 ) { // 轮询数据包
 		if( packet[ 0 ]->stream_index == video_index[ 0 ] ) { // 视频包需要重新编码
@@ -442,39 +397,23 @@ int main( int argc, char **argv ) {
 	packet[ 0 ]->data = NULL; // 传入一个空包，冲走解码缓存
 	packet[ 0 ]->size = 0;
 	recode_video( packet, frame, filt_frame ); // 对视频帧重新编码
-	int second_flag = 0;
-	// 第二个文件还没完的话，就在末尾补上第二个文件的视频
-	while( av_read_frame( in_fmt_ctx[ 1 ], packet[ 1 ] ) >= 0 ) { // 轮询数据包
-		if( packet[ 1 ]->stream_index == video_index[ 1 ] ) { // 视频包需要重新编码
-			recode_video2( packet, frame, filt_frame ); // 对视频帧重新编码
-			second_flag = 1;
-		}
-		av_packet_unref( packet[ 1 ] ); // 清除数据包
-	}
-	if( second_flag ) { // 第二个视频比较长
-		packet[ 1 ]->data = NULL; // 传入一个空包，冲走解码缓存
-		packet[ 1 ]->size = 0;
-		recode_video2( packet, frame, filt_frame ); // 对视频帧重新编码
-	}
 	output_video( NULL ); // 传入一个空帧，冲走编码缓存
 	av_write_trailer( out_fmt_ctx ); // 写文件尾
-	av_log( NULL, AV_LOG_INFO, "Success blend video file.\n" );
+	av_log( NULL, AV_LOG_INFO, "Success mix grid file.\n" );
 
-	avfilter_free( buffersrc_ctx[ 0 ] ); // 释放输入滤镜的实例
-	avfilter_free( buffersrc_ctx[ 1 ] ); // 释放输入滤镜的实例
+	i = -1;
+	while( ++i < ARRAY_LEN ) {
+		avfilter_free( buffersrc_ctx[ i ] ); // 释放输入滤镜的实例
+		av_frame_free( &frame[ i ] ); // 释放数据帧资源
+		av_packet_free( &packet[ i ] ); // 释放数据包资源
+		avcodec_free_context( &video_decode_ctx[ i ] ); // 释放视频解码器的实例
+		avformat_close_input( &in_fmt_ctx[ i ] ); // 关闭音视频文件
+	}
 	avfilter_free( buffersink_ctx ); // 释放输出滤镜的实例
 	avfilter_graph_free( &filter_graph ); // 释放滤镜图资源
-	av_frame_free( &frame[ 0 ] ); // 释放数据帧资源
-	av_frame_free( &frame[ 1 ] ); // 释放数据帧资源
 	av_frame_free( &filt_frame ); // 释放数据帧资源
-	av_packet_free( &packet[ 0 ] ); // 释放数据包资源
-	av_packet_free( &packet[ 1 ] ); // 释放数据包资源
 	avio_close( out_fmt_ctx->pb ); // 关闭输出流
-	avcodec_free_context( &video_decode_ctx[ 0 ] ); // 释放视频解码器的实例
-	avcodec_free_context( &video_decode_ctx[ 1 ] ); // 释放视频解码器的实例
 	avcodec_free_context( &video_encode_ctx ); // 释放视频编码器的实例
 	avformat_free_context( out_fmt_ctx ); // 释放封装器的实例
-	avformat_close_input( &in_fmt_ctx[ 0 ] ); // 关闭音视频文件
-	avformat_close_input( &in_fmt_ctx[ 1 ] ); // 关闭音视频文件
 	return 0;
 }

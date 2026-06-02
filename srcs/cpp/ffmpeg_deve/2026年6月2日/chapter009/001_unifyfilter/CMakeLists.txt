@@ -69,5 +69,4 @@ target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
 file( GLOB lib_file_s "${CMAKE_HOME_DIRECTORY}/lib/*.a" )
 target_link_libraries( ${prject_name} PRIVATE ${lib_file_s} )
 
-copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/resources/FFmpeg resources/fuzhous.mp4" "${app_run_bin}" FALSE )
-copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/resources/FFmpeg resources/seas.mp4" "${app_run_bin}" FALSE )
+copy_replace_dir_path_cmake_file_command( "${CMAKE_HOME_DIRECTORY}/srcs/resources/FFmpeg resources/fuzhou.mp4" "${app_run_bin}" FALSE )
